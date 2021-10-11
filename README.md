@@ -1,6 +1,6 @@
 ## Multi-Puller ##
 
-This script is for teachers of CS50AP.  It will let you pull all the student folders for a list of assignments, into a folder that you name or that is auto-generated from the slug.  
+This script is for teachers of CS50AP.  It will let you pull all the student work for a number of assignments, into folders that you name or that are auto-generated from the slug.  
 
 - This script does not handle authentication with GitHub. You must set up an SSH key according to the instructions [here](https://cs50.readthedocs.io/github/).
 - You must create slugs.csv and students.csv. Templates are proivded in the repo.
