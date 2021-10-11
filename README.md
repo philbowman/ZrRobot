@@ -1,19 +1,13 @@
-## Puller ##
+## Multi-Puller ##
 
-This script is for teachers of CS50AP.  It will let you pull all the student folders for a single assignment, into a folder that you name.  There are a few requirements that your workspace must meet.
+This script is for teachers of CS50AP.  It will let you pull all the student folders for a list of assignments, into a folder that you name or that is auto-generated from the slug.  
 
-- Put a folder at the root of your workspace called "studentwork".
-- Put a file in the same folder as puller.py called names.txt.  This file should have the github names of your students, along with the names you want their folders to have.  It should look like this:
+- This script does not handle authentication with GitHub. You must set up an SSH key according to the instructions [here](https://cs50.readthedocs.io/github/)
+- By default, student repos will be cloned into `[location_of_puller.py]/studentwork/assignment_folder/student_folder` where student_folder is defined in students.csv and assignment_folder is defined in slugs.csv OR is auto-generated from the last one or two words in the slug.
+- If a repo has already been cloned into the folder specified in students.csv, the script will pull the latest changes. 
 
-foldername1,Githubname1
+- If a student has not turned in an assignment, puller simply does not create a folder for that assignment for that user
 
-foldername2,Githubname2
+Run the script with `python3 puller.py`.
 
-
-etc.
-
-At the moment, if a student has not turned in an assignment, puller does not notify the user.  There will simply not be a folder created for that user.
-
-Run the script with "python puller.py".  The script will prompt you for the slug of the assignment, which you can find at cs50.me.
-
-
+This project is based on [puller by Mark Sobkowicz](https://github.com/sobko/puller)

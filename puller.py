@@ -1,68 +1,65 @@
-#!/usr/pyenv/shims/python
-#usage:  ./puller.py -b <branch_slug> -u <github_username> -p <github_password>
-
 import sys
-import optparse
-import pexpect
 import subprocess
-import time
 import os
+import csv
 
-def get_projects():
-    if not os.path.isdir("/home/ubuntu/studentwork/"):
-        print("Make a directory called 'studentwork' in your workspace.")
-        return
+STUDENTWORK_DIR = "studentwork/"
 
-    parser = optparse.OptionParser()
-    parser.add_option('-b', '--branch', dest='branch', help="assignment slug")
-    parser.add_option('-u', '--username', dest='username', help="github username")
-    parser.add_option('-p', '--password', dest='password', help='github password')
+if not os.path.exists(STUDENTWORK_DIR):
+    subprocess.run("mkdir " + STUDENTWORK_DIR, shell=True)
 
-    (options, args) = parser.parse_args()
 
-    if options.branch is None:
-        options.branch = input('Assignment Slug:')
+def get_projects(slug, foldername):
+    print(f"fetching student work for {slug}")
+    assignment_path = STUDENTWORK_DIR + foldername
 
-    if options.username is None:
-        options.username = input('Github Username:')
+    #make the assignment folder.
+    if not os.path.exists(assignment_path):
+        subprocess.run("mkdir " + assignment_path, shell=True)
 
-    if options.password is None:
-        options.password = input('Github Password:')
-
-    foldername = input("What should I call the folder?")
-
-    #Load Names
-
+    #iterate over students in students.csv
     try:
-        file = open("names.txt", "r")
-    except:
-        print("No file names.txt")
-        return
+        with open("students.csv") as students:
+            for person in csv.DictReader(students):
+                github_url = "https://github.com/me50/" + person['username']
+                student_path = assignment_path + "/" + person['folder']
+                
+                #pull/update repos that have already been cloned
+                if os.path.exists(student_path):
+                    print(f"{student_path} exists; pulling...")
+                    subprocess.run("git pull --rebase", shell=True, cwd=student_path)
+                
+                #clone repos that haven't yet been cloned
+                else:
+                    print(f"{student_path} doesn't exist. cloning {github_url}")
+                    subprocess.run(f"git clone -b {slug} {github_url} {person['folder']}", shell=True, cwd=assignment_path)
 
-    #make the assignment folder.  If it already exists, make a new one with today's date appended.
-    subprocess.call("mkdir /home/ubuntu/studentwork/" + foldername, shell=True)
+    except FileNotFoundError:
+        print("students.csv does not exist")
 
+def get_assignments():
+    try:
+        #iterate over list of assignments in slugs.csv
+        with open('slugs.csv') as slugs:
+            for slug in csv.DictReader(slugs):
+                #use user-defined local folder name
+                if slug['folder']:
+                    foldername = slug['folder']
+                
+                else:
+                    slug_arr = slug['slug'].split('/')
+                    #create folder names for "more" and "less" assignments
+                    if slug_arr[-1] == "less" or slug_arr[-1] == "more":
+                        foldername = f"{slug_arr[-2]}_{slug_arr[-1]}"
+                    else:
+                        foldername = slug_arr[-1]
 
-    people = file.readlines()
-    for person in people:
-        (studentname, githubname) = person.split(",")
-        #githubname += ".git"
-        #git clone the folder.
-        githuburl = "https://github.com/me50/" + githubname
-        destinationurl = "/home/ubuntu/studentwork/" + foldername + "/" + studentname
-        pexpecter = pexpect.spawn("git clone -b " + options.branch + " " + githuburl + " " + destinationurl)
-        pexpecter.expect("Username for 'https://github.com': ")
-        pexpecter.sendline(options.username)
-        pexpecter.expect("Password for 'https://" + options.username + "@github.com': ")
-        pexpecter.sendline(options.password)
-        pexpecter.wait()
+                get_projects(slug['slug'], foldername)
+    
+    except FileNotFoundError:
+        print("slugs.csv does not exist")
 
-get_projects()
-
-
-
-
-
+get_assignments()
 
 
 
