@@ -15,6 +15,6 @@ Run the script with `python3 puller.py`.
 
 - If a student has not turned in an assignment, the script simply does not create a folder for that assignment for that user
 
-- You can compare work with [cs50's compare tool](https://cs50.readthedocs.io/projects/compare50/en/latest/) with from the assignment folder wtih, for example, `compare50 studentwork/mario_more/*/*.c -o studentwork/mario_more/compare50`
+- You can compare work with [cs50's compare tool](https://cs50.readthedocs.io/projects/compare50/en/latest/) with from the assignment folder wtih, for example, `compare50 studentwork/mario_more/*/*.c -o studentwork/mario_more/compare50` or `compare50 puller/studentwork/cash/*/*.c -a source50/cash/*/*.c -o puller/studentwork/cash/compare50`
 
 This project is based on [puller by Mark Sobkowicz](https://github.com/sobko/puller)
