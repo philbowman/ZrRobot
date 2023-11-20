@@ -1,0 +1,50 @@
+{% extends "base.j2" %}
+
+{% block title %}
+User Page: {{ student.username }}</title>
+{% endblock %}
+
+{% block content %}
+
+<h1>Submissions for {{ student.username }}</h1>
+<h3>{{ student.email }}</h3>
+
+<table border="1">
+    <thead>
+    <tr>
+        <th>Problem</th>
+        <th>check50</th>
+        <th>style50</th>
+        <th>Timestamp</th>
+        <th>Archive</th>
+        <th>GitHub URL</th>
+    </tr>
+    </thead>
+    <tbody>
+    {% for submission in submissions %}
+        <tr>
+            <td><a href="{{ url_for('problem_page', foldername=submission.problem.foldername) }}">{{ submission.problem.slug }}</a></td>
+            <td>{{ submission.checks_passed }} / {{ submission.checks_run }}</td>
+            <td>{{ submission.style50_score }}</td>
+            <td>{{ submission.timestamp }}</td>
+            <td>
+                {% if submission.archive %}
+                    <a href="{{ submission.archive }}">files</a>
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+            <td>
+                {% if submission.github_url %}
+                    <a href="{{ submission.github_url }}">repo</a>
+                {% else %}
+                    -
+                {% endif %}
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+{% endblock %}
+

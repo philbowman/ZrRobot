@@ -1,0 +1,24 @@
+<div class="card {% if coursework.state.name == "PUBLISHED" %}coursework-published"{% elif coursework.state.name == "DRAFT" %}coursework-draft" style="display: none;"{% else %}coursework-deleted" style="display: none;"{% endif %} >
+    <div class="card-body">
+        <h5 class="card-title"><a href="{{ url_for('coursework_page', coursework_id=coursework.id) }}">{{ coursework.title }}</a></h5>
+        <h6 class="card-subtitle"><a href="{{ url_for('course_page', course_id=coursework.course.id) }}">{{ coursework.course.title }}</a></h6>
+        <p class="card-text">{{ coursework.description }}</p>
+        <form action="{{ url_for('update_requirements', coursework_id=coursework.id) }}" method="post">
+            {% for problemset in problemsets %}
+                <input type="checkbox" name="requirements" value="{{ problemset.id }}" {% if problemset in coursework.problemsets %}checked{% endif %}>
+                    {{ problemset.title }}
+                </input>
+                {% include 'problemset_partial.j2' %}
+            {% endfor %}
+            <button type="submit" class="btn btn-primary">Update</button>
+        <ul class=""card-text">
+            {% set submission_stats = coursework.submission_stats()%}
+            {% for s, n in submission_stats.items() %}
+                <li>{{ n }} {{ s }}</li>
+            {% endfor %}
+        </ul>
+        {% include 'coursework_submissionlist.j2' %}
+        </div>
+
+    </div>
+</div>

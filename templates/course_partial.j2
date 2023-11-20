@@ -1,0 +1,38 @@
+<div class="card {% if course.sections %}course-section"{% else %}course-nosection" style="display: none;"{% endif %}>
+    <div class="card-body">
+        <h5 class="card-title"><a href="{{ url_for('course_page', course_id=course.id) }}">{{ course.title }}</a></h5>
+        <ul>
+            <li>Section Description: {{ course.section_desc }}</li>
+            <li>Description Heading: {{ course.descriptionHeading }}</li>
+            <li>Course Description: {{ course.description }}</li>
+            <li><a href="{{ course.url }}">Link to Google Classroom</a></li>
+            <li>Enrollment code: {{ course.enrollmentCode }}</li>
+        </ul>
+
+        {% set extra_students = course.students_not_in_section() %}
+        {% if extra_students %}
+            <h6>Students not in section</h6>
+            <ol class="card-text">
+                {% for student in course.students if student.email in extra_students %}
+                    <li><span style="color:red">{{ student.name }} ({{student.email }})</span></li>
+                {% endfor %}
+            </ol>
+        {% endif %}
+
+        <h6>Sections</h6>
+        <div class="row" id="course_sections_{{ course.id }}">
+            {% if course.sections %}
+                
+                        
+                        {% for section in course.sections %}
+                            <div class="col-sm-4">
+                                {% include 'section_partial.j2'%}
+                            </div>
+                        {% endfor %}
+                    
+
+            {% endif %}
+        </div>
+
+    </div>
+</div>

@@ -1,0 +1,385 @@
+{% extends "base.j2" %}
+
+{% block title %}
+{{ 'Edit' if problemset else 'Create' }} Problem Set
+{% endblock %}
+
+{% block head %}
+<script>
+    let problems = {}
+    problems["prob"] = {
+            "id": "prob",
+            "title": "New Problem",
+            "slug": "",
+            "description": "",
+            "url": "",
+            "difficulty": "less",
+            "problem_sets": [],
+            "requirement_type": "required",
+            "comfort_level": "LESS",
+            "sequence": 0
+
+        }
+        problems["ps"] = {
+            "id": "ps",
+            "title": "New Problem Set",
+            "slug": "",
+            "description": "",
+            "url": "",
+            "difficulty": "less",
+            "problem_sets": [],
+            "requirement_type": "required",
+            "comfort_level": "LESS",
+            "sequence": 0
+
+        },   
+    {% for problem in problems %}
+        problems["prob-{{ problem.id }}"] = {
+            "id": "prob-{{ problem.id }}",
+            "title": "{{ problem.get_title() }}",
+            "slug": "{{ problem.slug }}",
+            "description": "{{ problem.description }}",
+            "url": "{{ problem.url }}",
+            "difficulty": "{{ problem.difficulty }}",
+            "problem_sets": [
+                {% for ps in problem.problem_sets %}
+                    "{{ ps.title }}",
+                {% endfor %}
+            ]
+        }
+    {% endfor %}
+
+    {% for ps in problem_sets %}
+        problems[["ps-{{ ps.id }}"]] = {
+                "id": "ps-{{ ps.id }}",
+                "title": "{{ ps.title }}",
+                "items": {}
+            },
+        {% for item in ps.items %}
+            {% if item.problem %}
+            problems[["ps-{{ ps.id }}"]]["prob-{{ item.problem.id }}"] = "{{ item.problem.get_title() }}"
+            {% else %}
+            problems[["ps-{{ ps.id }}"]]["ps-{{ item.nested_problemset.id }}"] = "{{ item.nested_problemset.title }}"
+            {% endif %}
+        {% endfor %}
+    {% endfor %}
+
+
+    function addCard(selectedProblemId) {
+        let problem = problems[selectedProblemId]
+        let problemsDiv = document.getElementById("problems-div");
+        let cardnum = problemsDiv.childNodes.length;  
+
+        // Bootstrap grid markup
+        const colDiv = document.createElement('div');
+        colDiv.className = 'col-sm-3';
+        colDiv.id = "problem-col-" + cardnum;
+        // set "data-cardnum" attribute
+        colDiv.setAttribute("data-cardnum", cardnum);
+        // Append the column to the problemsDiv
+        problemsDiv.appendChild(colDiv);
+
+        colDiv.appendChild(createCard(problem, cardnum));
+    }
+
+
+    function createCard(problem, cardnum) {
+
+        // Create the main card div
+        const cardDiv = document.createElement('div');
+        cardDiv.className = 'card mb-4';  // Added 'mb-4' for margin-bottom
+        cardDiv.id = "problem-card-" + cardnum;
+
+        // Add the title
+        const cardTitle = document.createElement('h5');
+        cardTitle.className = 'card-title';
+        cardTitle.innerText = problem['title'];
+        cardDiv.appendChild(cardTitle);
+
+        // Create the problem, requirement, comfort, and sequence selector div
+        const selectorDiv = makeSelectorDiv(problem, cardnum);
+        cardDiv.appendChild(selectorDiv);
+
+        // Create the card body div
+        const cardBodyDiv = makeCardBody(problem)
+        cardDiv.appendChild(cardBodyDiv);
+
+        return cardDiv;
+
+    }
+
+
+
+    function updateCard(selectElement, colDiv) {
+        // get data-cardnum attribute
+        let cardnum = colDiv.getAttribute("data-cardnum"); 
+        let problem = problems[selectElement.value]       
+        newcard = createCard(problem, cardnum);
+        clearElementContent(colDiv);
+        colDiv.appendChild(newcard);
+    }
+
+
+
+    function makeProblemSelect(problem, sequence) {
+        let selectElement = document.createElement("select");
+        selectElement.name = "problems";
+        let item_type;
+        if (problem['id'].startsWith("ps")){
+            item_type = "ps"
+        }
+        else{
+            item_type = "prob"
+        }
+
+        /* Create and add the default option
+        let defaultOption = document.createElement("option");
+        if (item_type == "ps"){
+            defaultOption.value = "ps";
+            defaultOption.text = "Choose problem set";
+        }
+        else{
+            console.log("prob")
+            defaultOption.value = "prob";
+            defaultOption.text = "Choose problem";
+        }
+        
+        if (problem['id'] === defaultOption.value) {
+            defaultOption.selected = true;
+        }
+        defaultOption.disabled = true;  // This will ensure it cannot be re-selected once changed
+        selectElement.appendChild(defaultOption); */
+
+
+        for (let problemid in problems) {
+            if (problems.hasOwnProperty(problemid)) {  // This check ensures you only get properties directly on the object, not its prototype chain.
+                if (!problemid.startsWith(item_type)){
+                    continue;
+                }
+                let p = problems[problemid];
+                let option = document.createElement("option");
+                option.value = problemid;
+                if (option.value == item_type){
+                    option.disabled = true;
+                }
+                option.text = p.title;
+                
+                if (problem['id'] === option.value) {
+                    option.selected = true;
+
+                }
+                selectElement.appendChild(option);
+
+            }
+        }
+        selectElement.addEventListener('change', function(event) {
+            updateCard(event.target, document.getElementById("problem-col-" + sequence));
+        });
+
+        selectElement.className = 'form-control mt-2';  // Bootstrap styling
+        return selectElement
+
+    }
+
+    function makeRequirementSelect(selectedRequirement) {
+        let requirementSelect = document.createElement("select");
+        requirementSelect.name = "requirement_types";
+        requirementSelect.className = 'form-control mt-2';  // Bootstrap styling
+        let requirements = ['REQUIRED', 'OPTIONAL', 'CHOICE'];
+        for (let i = 0; i < requirements.length; i++) 
+        {
+            let option = document.createElement("option");
+            option.value = requirements[i];
+            option.text = requirements[i];
+            if (option.text == selectedRequirement) {
+                option.selected = true;
+            }
+            requirementSelect.appendChild(option);
+        }
+        requirementSelect.label = "Requirement"
+        return requirementSelect
+    }
+
+    function makeComfortLevelSelect(selectedComfortLevel) {
+    let comfortSelect = document.createElement("select");
+    comfortSelect.name = "comfort_levels";
+    comfortSelect.className = 'form-control mt-2';  // Bootstrap styling
+        
+        let comfort_levels = ['LEAST', 'LESS', 'MORE', 'MOST'];
+        for (let i = 0; i < comfort_levels.length; i++) {
+            let option = document.createElement("option");
+            option.value = comfort_levels[i];
+            option.text = comfort_levels[i];
+            if (option.text == selectedComfortLevel) {
+                option.selected = true;
+            }
+            comfortSelect.appendChild(option);
+
+        }
+        comfortSelect.label = "Comfort"
+        return comfortSelect
+
+    }
+
+
+function clearElementContent(element) {
+    while (element.lastElementChild) {
+        element.removeChild(element.lastElementChild);
+    }
+}
+
+function makeSequenceSelect(sequence){
+    // Create 'sequence' integer field
+    const sequenceField = document.createElement('input');
+    sequenceField.type = 'number';
+    sequenceField.name = 'sequence';
+    sequenceField.className = 'form-control mt-2';
+    sequenceField.value = sequence;
+    return sequenceField;
+
+}
+
+
+function makeCardBody(problem) {
+    const cardBody = document.createElement('div');
+    cardBody.className = 'card-body';
+    let description = makeDescriptionText(problem);
+    cardBody.appendChild(description);
+    // Create a cancel button
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'btn btn-danger mt-2';
+    cancelButton.innerText = 'Cancel';
+    cancelButton.addEventListener('click', function() {
+        // Remove the card when the cancel button is clicked
+        cardBody.closest('.card').remove();
+    });
+    cardBody.appendChild(cancelButton);
+
+    return cardBody
+}
+
+function makeSelectorDiv(problem, cardnum) {
+    let sequence = cardnum
+    if (problem['sequence'])
+    {
+        sequence = parseInt(problem['sequence']);
+    }
+    
+    const selectorDiv = document.createElement('div');
+    selectorDiv.id = 'problem-selector';
+
+    let formRow1 = document.createElement("div");
+    formRow1.className = "form-row";    
+    selectorDiv.appendChild(formRow1);
+
+    let formCol1_1 = document.createElement("div");
+    formCol1_1.className = "col";
+    const problemSelectElement = makeProblemSelect(problem, cardnum);
+    problemSelectElement.id = 'problem-select-' + cardnum;
+    formCol1_1.appendChild(problemSelectElement);
+    formRow1.appendChild(formCol1_1);
+
+    let formRow2 = document.createElement("div");
+    formRow2.className = "form-row";
+    selectorDiv.appendChild(formRow2);
+
+    let formCol1 = document.createElement("div");
+    formCol1.className = "col";
+    formCol1.appendChild(makeRequirementSelect(problem['requirement_type']));
+    formRow2.appendChild(formCol1);
+
+    let formCol2 = document.createElement("div");
+    formCol2.className = "col";
+    formCol2.appendChild(makeComfortLevelSelect(problem['comfort_level']));
+    formRow2.appendChild(formCol2);
+
+    let formCol3 = document.createElement("div");
+    formCol3.className = "col";
+    formCol3.appendChild(makeSequenceSelect(sequence));
+    formRow2.appendChild(formCol3);
+
+    return selectorDiv;
+}
+function makeDescriptionText(problem) {
+    const descriptionText = document.createElement('p');
+    descriptionText.className = 'card-text';
+    let description = "";
+    for (let key in problem) {
+        if (problem.hasOwnProperty(key)) {
+            description += key + ": " + problem[key] + "\n";
+        }
+    }
+    descriptionText.innerText = description;
+    return descriptionText
+
+}
+
+    </script>
+
+</script>
+{% endblock %}
+
+
+
+{% block content %}
+<h1>{{ 'Edit' if problemset else 'Create' }} a Problem Set</h1>
+
+<form method="post">
+    <div class="container">
+        <div class="row">
+            <div class="col">
+                <h3>Title</h3>
+                <input type="text" name="title" value="{{ problemset.title if problemset }}" required>
+            </div>
+        </div>
+        <div class="row">
+        <div class="col">
+            <label for="number_required">Number Required:</label>
+            <input style="width:50px" id="number_required" type="number" name="number_required" min=0, value=1>
+        </div>
+        </div>
+        <div class="row">
+            <div class="col-sm-2">
+                <h3>Problems</h3>
+            </div>
+            <div class="col-sm-2">
+                <button type="button" class="btn btn-primary btn-sm" onclick="addCard('prob')">Add Problem</button>
+            </div>
+            <div class="col-sm-2">
+                <button type="button" class="btn btn-primary btn-sm" onclick="addCard('ps')">Add ProblemSet</button>
+            </div>
+        </div>
+        <div class="row" id="problems-div"><!-- problems go here --></div>    
+
+        <div class="row"><p></p></div>
+
+
+    <div class="row">
+    <div class="col-sm-1">
+        <input type="submit" class="btn btn-success" value="{{ 'Update' if problemset else 'Create' }}">
+    </div>
+    <div class="col-sm-1">
+        <a href="{{ url_for('problemsets_page') }}" class="btn btn-secondary">Cancel</a>
+    </div>
+    {% if problemset %}
+    <div class="col-sm-1">
+    <a href="{{ url_for('delete_problemset', problemset_id=problemset.id) }}" class="btn btn-danger">Delete</a>
+    </div>
+    {% endif %}
+    
+    </div>
+    </div>
+</form>
+<script>
+{% if ps_items %}
+    {% for item in ps_items %}
+        {% if item.problem %}
+            addCard("prob-{{ item.problem.id }}");
+        {% else %}
+            addCard("ps-{{ item.nested_problemset.id }}");
+        {% endif %}
+    {% endfor %}
+{% endif %}
+</script>
+{% endblock %}

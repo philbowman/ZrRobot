@@ -1,0 +1,38 @@
+{% extends "base.j2" %}
+
+{% block title %}
+    {{ 'Edit' if problem else 'Create' }} Problem
+{% endblock %}
+
+{% block content %}
+    <h1>{{ 'Edit' if problem else 'Create' }} Problem</h1>
+
+    <form method="post">
+        <div class="form-group">
+            <label for="title">Title:</label>
+            <input type="text" name="title" class="form-control" value="{{ problem.title if problem }}" required>
+        </div>
+        <div class="form-group">
+            <label for="slug">Slug:</label>
+            <input type="text" name="slug" class="form-control" value="{{ problem.slug if problem }}">
+        </div>
+        <div class="form-group">
+            <label for="url">URL:</label>
+            <input type="text" name="url" class="form-control" value="{{ problem.url if problem }}">
+        </div>
+        <div class="form-group">
+            <label for="autograder">Autograder:</label>
+            <input type="text" name="autograder" class="form-control" value="{{ problem.autograder if problem else 'submit50'}}">
+        </div>        <!-- Add more fields here as needed -->
+        <button type="submit" class="btn btn-success">
+            {{ 'Update' if problem else 'Create' }} Problem
+        </button>
+    </form>
+    
+    {% if problem %}
+        <a href="{{ url_for('delete_problem', problem_id=problem.id) }}" class="btn btn-danger mt-3">
+            Delete Problem
+        </a>
+    {% endif %}
+    
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends 'base.j2' %}
+
+{% block content %}
+<h1>{{ section.period_abbreviation }}-{{ section.course_name }}({{section.teacher}})</h1>
+<form method="post">
+    <div class="form-group">
+        <label for="courseSelect">Google Classroom</label>
+        <select id="courseSelect" name="course">
+            {% if not section.course %}
+            <option value=""  disabled selected>Select Classroom</option>
+            {% endif %}
+            <option value="">None</option>
+            {% for course in courses %}
+            {% if course.id == section.course.id %}
+            <option value="{{ course.id }}" selected>{{ course.title }}</option>
+            {% else %}
+            <option value="{{ course.id }}">{{ course.title }}</option>
+            {% endif %}
+            {% endfor %}
+    <input type="submit" class="btn btn-success" value="{{ 'Update' }}">
+</form>
+
+
+
+
+<ul>
+    <li>school: {{ section.school.abbreviation }}</li>
+    <li>period number: {{ section.period_number }}</li>
+    <li>no of students: {{ section.no_of_students }}</li>
+    <li>room: {{ section.room }}</li>
+    <li>teacher email: {{ section.teacher_email }}</li>
+    <li>ps dcid: {{ section.ps_dcid }}</li>
+    <li>period abbreviation: {{ section.period_abbreviation }}</li>
+</ul>
+{% endblock %}

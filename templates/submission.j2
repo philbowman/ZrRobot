@@ -1,0 +1,36 @@
+{% extends 'base.j2'%}
+{% set coursework = submission.coursework %}
+{% set selected_submission_id = submission.id%}
+
+{% block sidebar %}
+{% include 'coursework_sidebar.j2'%}
+{% endblock %}
+
+{% block content %}
+    <h1><a href="{{ url_for('coursework_page', coursework_id=submission.coursework.id) }}">{{submission.coursework.title}}</a></h1>
+    <h2>{{submission.student.name }}</h2>
+
+    <ul>
+        <li>status: {{ submission.status }}</li>
+        <li>state: {{ submission.state.value }}</li>
+        <li>creationTime: {{ submission.creationTime }}</li>
+        <li>updateTime: {{ submission.updateTime }}</li>
+        <li>late: {{ submission.late }}</li>
+        <li>draftGrade: {{ submission.draftGrade }}</li>
+        <li>assignedGrade: {{ submission.assignedGrade }}</li>
+        <li>GC URL: <a href="{{ submission.url }}">{{ submission.url }}</a></li>
+        {% if submission.attachments %}
+        <li> 
+            Attachments:
+            <ul>
+                {% for attachment in submission.attachments %}
+                <li><a href="{{attachment.url}}">{{attachment.title }}</a></li>
+                {% endfor %}
+            </ul>
+        </li> 
+        {% endif %}
+    </ul>
+    {% include 'rubric.j2' %}
+    <a class="btn btn-success" href="{{ url_for('submission_grade', submission_id=submission.id) }}">Grade</a>
+{% endblock %}
+```

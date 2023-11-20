@@ -1,0 +1,67 @@
+
+<ul class="list-group">
+    <li class="list-group-item">
+        Sort by <button class="btn btn-sm btn-outline" onclick="sort_by_name()">Name</button> <button class="btn btn-sm btn-outline-secondary" onclick="sort_by_status()">Status</button>
+    </li>
+    <div id="submission-list">
+{% for sub in coursework.submissions %}
+    {% if sub.id == selected_submission_id %}
+        <li class="list-group-item list-group-item-primary"
+    {% elif sub.late %}
+        <li class="list-group-item list-group-item-danger"
+    {% elif sub.status ==  "TURNED_IN" or sub.status == "RESUBMITTED" %}
+        <li class="list-group-item list-group-item-warning"
+    {% elif sub.status == "GRADED" %}
+        <li class="list-group-item list-group-item-success"
+    {% else %}
+        <li class="list-group-item data-cw-id="{{ coursework.id }}"
+    {% endif %}
+     data-sublist-status="{{ sub.status }}">
+            
+            <a href="{{ url_for('submission_page', coursework_id=sub.coursework.id, submission_id=sub.id) }}">{{ sub.student.name }}</a>
+
+        </li>
+{% endfor %}
+</div>
+</ul>
+
+<script>
+    function sort_by_name() {
+        var list = document.getElementById("submission-list");
+        var items = list.getElementsByTagName("li");
+        var itemsArr = [];
+        for (var i in items) {
+            if (items[i].nodeType == 1) { // get rid of the whitespace text nodes
+                itemsArr.push(items[i]);
+            }
+        }
+        itemsArr.sort(function(a, b) {
+            return a.innerHTML == b.innerHTML
+                    ? 0
+                    : (a.innerHTML > b.innerHTML ? 1 : -1);
+        });
+        for (i = 0; i < itemsArr.length; ++i) {
+            list.appendChild(itemsArr[i]);
+        }
+    }
+    function sort_by_status() {
+        var list = document.getElementById("submission-list");
+        var items = list.getElementsByTagName("li");
+        var itemsArr = [];
+        for (var i in items) {
+            console.log(items[i]);
+            if (items[i].nodeType == 1) { // get rid of the whitespace text nodes
+                itemsArr.push(items[i]);
+            }
+        }
+        itemsArr.sort(function(a, b) {
+            return a.getAttribute("data-sublist-status") == b.getAttribute("data-sublist-status")
+                    ? 0
+                    : (a.getAttribute("data-sublist-status") > b.getAttribute("data-sublist-status") ? 1 : -1);
+        });
+        console.log(itemsArr);
+        for (i = 0; i < itemsArr.length; ++i) {
+            list.appendChild(itemsArr[i]);
+        }
+    }
+</script>

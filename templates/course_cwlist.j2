@@ -1,0 +1,57 @@
+
+<div id="course-cw-{{ course.id }}">
+    <div class="card">
+        <div class="card-header" id="cw-heading-{{ course.id }}">
+            <button class="btn btn-link" data-toggle="collapse" data-target="#cw-body-{{ course.id }}" aria-expanded="true" aria-controls="cw-body-{{ course.id }}">
+                <h6 class="mb-0"></h6><i class="fa-solid fa-caret-down"></i> Coursework for {{ course.title }} </h6>
+            </button>
+        </div>
+        
+        
+        <div id="cw-body-{{ course.id }}" class="collapse" arlabelledby="cw-heading-{{ course.id }}" data-parent="#course-cw-{{ course.id }}">
+            <table class="table table-sm table-hover" id="course_cw_table_{{ course.id }}" border="1">
+                <thead>
+                    <tr>
+                        <th scope="col">title</th>
+                        <th scope="col">state</th>
+                        <th scope="col">scheduled</th>
+                        <th scope="col">due</th>
+                        <th scope="col">points</th>
+                        <th scope="col">assigned to</th>
+                        <th scope="col">topic id</th>
+                        <th scope="col">dev</th>
+                        <th scope="col">GC URL</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for coursework in course.courseworks %}
+                        <div class="coursework-{{ coursework.id }}" >
+                            {% if coursework.associatedWithDeveloper and coursework.state.name == "DRAFT" %}
+                                <tr class="table-info" data-cw-id="{{ coursework.id }}">
+                            {% elif coursework.associatedWithDeveloper and coursework.state.name ==  "PUBLISHED" %}
+                                <tr class="table-primary" data-cw-id="{{ coursework.id }}">
+                            {% elif coursework.state.name == "DRAFT" %}
+                                <tr class="table-warning" data-cw-id="{{ coursework.id }}">
+                            {% elif coursework.state.name ==  "PUBLISHED" %}
+                                <tr data-cw-id="{{ coursework.id }}">
+                            {% endif %}
+                                    <th scope="row">
+                                        <a href="{{ url_for('coursework_page', coursework_id=coursework.id) }}">{{ coursework.title }}</a>
+                                    </th>
+                                        <td>{{ coursework.state }}</td>
+                                        <td>{{ coursework.scheduledTime }}</td>
+                                        <td>{{ coursework.dueDateTime }}</td>
+                                        <td>{{ coursework.maxPoints }}</td>
+                                        <td>{% if coursework.assignedToAllStudents %}All{% else %}Some{% endif %}</td>
+                                        <td>{{ coursework.topicId }}</td>
+                                        <td>{% if coursework.associatedWithDeveloper %}yes{% else %}no{% endif %}</td>
+                                        <td>{% if coursework.url %}<a href="coursework.url">link</a>{% else %}-{% endif %}</td>
+                                </tr>
+                        </div>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+</div>

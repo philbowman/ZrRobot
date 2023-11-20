@@ -1,0 +1,30 @@
+<div class="card">
+
+    <div class="card-header" id="section-heading-{{ section.id }}">
+            <button class="btn btn-link" data-toggle="collapse" data-target="#section-body-{{ section.id }}" aria-expanded="true" aria-controls="section-body-{{ section.id }}">
+                <h6 class="mb-0"></h6><i class="fa-solid fa-caret-down"></i> {{ section.period_abbreviation}}-{{section.course_name}} </h6>
+            </button>
+    </div>
+
+    <div id="section-body-{{ section.id }}" class="collapse" arlabelledby="section-heading-{{ section.id }}" data-parent="#course_sections_{{ course.id }}">
+        
+        <ul class="card-text">
+            <li>teacher: <a href="mailto:{{ section.teacher_email }}">{{section.teacher}}</a></li>
+            <li><a href="{{ url_for('section_page', section_id=section.id) }}">section details</a></li>
+            <li>school {{section.school_abbreviation}}, room {{section.room}}</li>
+            <li><a class="btn btn-sm btn-primary" href="{{ url_for('update_section_roster', section_id=section.id)}}">update roster</a></li>
+        </ul>
+        
+        
+        {% if section.students %}
+                <ol class="card-text">
+                    {% for student in section.students %}
+                        <li><span {% if student not in course.students %}style="color:red"{% endif %}><a href="mailto:{{student.email }}">{{ student.name }}</a></span></li>
+                    {% endfor %}
+                </ol>
+        {% endif %}
+
+    </div>
+    
+</div> 
+

@@ -1,0 +1,25 @@
+Number required: {{ problemset.num_required }}
+<ul>
+    {% for item in problemset.items %}
+    <li>
+        {% if item.problem %}
+        <a href="{{ url_for('problem_page', foldername=item.problem.foldername) }}">
+            {{ item.problem.title if item.problem.title else item.problem.slug }}
+        </a>
+        ({{ item.comfort_level.value }}, {{ item.requirement_type.value }})
+        {% else %}
+        {{ item.nested_problemset.title }} ({{ item.comfort_level.value }}, {{ item.requirement_type.value }})
+        <ul>
+            {% for nested_item in item.nested_problemset.items %}
+            <li>
+                <a href="{{ url_for('problem_page', foldername=nested_item.problem.foldername) }}">
+                    {{ nested_item.problem.title if nested_item.problem.title else nested_item.problem.slug }}
+                </a>
+                ({{ nested_item.comfort_level.value }}, {{ nested_item.requirement_type.value }})
+            </li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </li>
+    {% endfor %}
+</ul>

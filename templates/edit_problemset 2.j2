@@ -1,0 +1,493 @@
+{% extends "base.j2" %}
+
+{% block title %}
+{{ 'Edit' if problemset else 'Create' }} Problem Set
+{% endblock %}
+
+{% block head %}
+    <script src="/static/css/style.css"></script>
+<script>
+    let problems = {
+    {% for problem in problems %}
+        "prob-{{ problem.id }}": {
+            "title": "{{ problem.title if problem.title else null }}",
+            "slug": "{{ problem.slug }}",
+            "description": "{{ problem.description }}",
+            "url": "{{ problem.url }}",
+            "difficulty": "{{ problem.difficulty }}",
+            "tags": [
+                {% for tag in problem.tags %}
+                    "{{ tag.name }}",
+                {% endfor %}
+            ],
+            "problem_sets": [
+                {% for ps in problem.problem_sets %}
+                    "{{ ps.title }}",
+                {% endfor %}
+            ]
+        },
+    {% endfor %}
+    };
+
+    let problemSets = {
+        {% for ps in problem_sets %}
+            "ps-{{ ps.id }}": {
+                "title": "{{ ps.title }}",
+                "items": [
+                    {% for item in ps.items %}
+                        {
+                            "type": "{{ 'problem' if item.problem else 'problemset' }}",
+                            "id": "{{ item.problem.id if item.problem else item.nested_problemset.id }}",
+                            "title": "{{ item.problem.title if item.problem else item.nested_problemset.title }}"
+                            // add more fields as necessary, depending on the properties of ProblemSetItem
+                        },
+                    {% endfor %}
+                ],
+            },
+        {% endfor %}
+    };
+
+
+
+function createCard(element, cardnum, selectedProblemId) {
+    // Bootstrap grid markup
+    const colDiv = document.createElement('div');
+    colDiv.className = 'col-sm-3';
+
+    // Create the main card div
+    const cardDiv = document.createElement('div');
+    cardDiv.className = 'card mb-4';  // Added 'mb-4' for margin-bottom
+    cardDiv.id = "problem-card-" + cardnum;
+    colDiv.appendChild(cardDiv);
+
+    // Append a default title to the card
+    const cardTitle = document.createElement('h5');
+    cardTitle.className = 'card-title';
+    cardTitle.innerText = 'New Problem';
+    cardDiv.appendChild(cardTitle);
+
+    // Create the problem selector div
+    const selectorDiv = document.createElement('div');
+    selectorDiv.className = 'form-row';
+    selectorDiv.id = 'problem-selector';
+    const problemSelectElement = makeProblemSelect();
+    problemSelectElement.id = 'problem-select-' + cardnum;
+    const problemSetSelectElement = makeProblemSetSelect();
+    problemSetSelectElement.id = 'problem-set-select-' + cardnum;
+    problemSetSelectElement.style.display = "none";  // Hide by default
+
+    // Bootstrap styling
+    problemSelectElement.className = 'form-control';
+    problemSetSelectElement.className = 'form-control';
+    
+    selectorDiv.appendChild(problemSelectElement);
+    selectorDiv.appendChild(problemSetSelectElement);
+    cardDiv.appendChild(selectorDiv);
+
+    // Create the card body div
+    const cardBodyDiv = document.createElement('div');
+    cardBodyDiv.className = 'card-body';
+    
+
+    // Create 'sequence' integer field
+    const sequenceField = document.createElement('input');
+    sequenceField.type = 'number';
+    sequenceField.name = 'sequence';
+    sequenceField.className = 'form-control mt-2';
+    sequenceField.placeholder = 'Sequence';
+    cardBodyDiv.appendChild(sequenceField);
+
+    
+
+
+    // Create a cancel button
+    const cancelButton = document.createElement('button');
+    cancelButton.type = 'button';
+    cancelButton.className = 'btn btn-danger mt-2';
+    cancelButton.innerText = 'Cancel';
+    cancelButton.addEventListener('click', function() {
+        // Remove the card when the cancel button is clicked
+        colDiv.remove();
+    });
+
+    // Append the cancel button to the card
+    cardBodyDiv.appendChild(cancelButton);
+
+    cardDiv.appendChild(cardBodyDiv);
+
+    // Set the select element to the selected problem
+    if (selectedProblemId && selectedProblemId !== "") {
+    if (selectedProblemId.startsWith("prob"))
+    {
+        selectElement = problemSelectElement;
+    }
+    else if (selectedProblemId.startsWith("ps"))
+    {
+        selectElement = problemSetSelectElement;
+    }
+    else
+    {
+        console.error('Unrecognized problem ID format:', selectedProblemId);
+        return;
+    }
+    for (let i = 0; i < selectElement.options.length; i++) {
+        let option = selectElement.options[i];
+        if (option.value === selectedProblemId) {
+            option.selected = true;
+            break;
+        }
+    }
+
+        // If a problem was selected, update the card to display the problem
+        updateCard(problemSelectElement);
+    }
+
+
+    
+
+    return colDiv;
+}
+
+
+
+function updateCard(selectElement) {
+    const selectedProblemId = selectElement.value;
+
+    const card = selectElement.closest('.card');
+    if (!card) {
+        console.error('Card element not found for the given select element:', selectElement);
+        return;
+    }
+
+
+    // Get cardnum from the card id for future use
+    const cardNum = card.id.split("-").pop();
+    
+    const cardBody = card.querySelector('.card-body');
+    clearElementContent(cardBody);
+
+    // Depending on the selectedProblemId, decide what to display and hide
+    if (selectedProblemId === "ps") {
+        toggleSelectors(card, false);
+        setCardBodyContent(cardBody, "Problem Set", problemSets[selectedProblemId]);
+    } else if (selectedProblemId === "problem") {
+        toggleSelectors(card, true);
+        setCardBodyContent(cardBody, "Problem", problems[selectedProblemId]);
+    } else {
+        if (selectedProblemId.startsWith('ps-')) {
+            // This is a problem set ID
+            setCardBodyContent(cardBody, "Problem Set", problemSets[selectedProblemId]);
+        } else if (selectedProblemId.startsWith('prob-')) {
+            // This is a problem ID
+            setCardBodyContent(cardBody, "Problem", problems[selectedProblemId]);
+        } else {
+            console.error('Unrecognized problem ID format:', selectedProblemId);
+            return;
+        }
+    }
+}
+
+
+
+function toggleSelectors(card, showProblem) {
+    // Retrieve the cardNum for specific selectors
+    const cardNum = card.id.split("-").pop();
+
+    // Using cardNum to target the specific problem selector or problem set selector
+    const problemSelector = card.querySelector('#problem-select-' + cardNum);
+    const problemSetSelector = card.querySelector('#problem-set-select-' + cardNum);
+    
+    if (showProblem) {
+        problemSelector.style.display = "block";
+        problemSelector.disabled = false;  // Enable problem selector
+        problemSetSelector.style.display = "none";
+        problemSetSelector.disabled = true;  // Disable problem set selector
+
+        // Set both selectors to their default values
+        problemSelector.selectedIndex = 0;
+        problemSetSelector.selectedIndex = 0;
+
+    } else {
+        problemSelector.style.display = "none";
+        problemSelector.disabled = true;  // Disable problem selector
+        problemSetSelector.style.display = "block";
+        problemSetSelector.disabled = false;  // Enable problem set selector
+        
+        // Set both selectors to their default values
+        problemSelector.selectedIndex = 0;
+        problemSetSelector.selectedIndex = 0;
+    }
+}
+
+
+
+function makeProblemSelect() {
+    let selectElement = document.createElement("select");
+    selectElement.name = "problems";
+
+    // Create and add the default option
+    let defaultOption = document.createElement("option");
+    defaultOption.value = "";  // No value for the default option
+    defaultOption.text = "Choose problem";
+    defaultOption.selected = true;  // This will ensure it's selected by default
+    defaultOption.disabled = true;  // This will ensure it cannot be re-selected once changed
+    selectElement.appendChild(defaultOption);
+
+    // Create and add the problemset option
+    let psOption = document.createElement("option");
+    psOption.value = "ps";  
+    psOption.text = "Problem Set";
+    selectElement.appendChild(psOption);
+
+    for (let problemid in problems) {
+        if (problems.hasOwnProperty(problemid)) {  // This check ensures you only get properties directly on the object, not its prototype chain.
+            console.log(problemid)
+            let problem = problems[problemid];            
+            let option = document.createElement("option");
+            option.value = problemid;
+            if (problem.title)
+            {
+                option.text = problem.title;
+            }
+            else
+            {
+                option.text = problem.slug;
+            }
+            selectElement.appendChild(option);
+
+        }
+    }
+    selectElement.addEventListener('change', function(event) {
+        updateCard(event.target);
+    });
+
+    selectElement.className = 'form-control mt-2';  // Bootstrap styling
+
+    return selectElement
+
+
+
+}
+
+function makeProblemSetSelect() {
+    let problemsDiv = document.getElementById("problems-div");
+    let selectElement = document.createElement("select");
+    selectElement.name = "problems";
+
+    // Create and add the default option
+    let defaultOption = document.createElement("option");
+    defaultOption.value = "";  // No value for the default option
+    defaultOption.text = "Choose problem set";
+    defaultOption.selected = true;  // This will ensure it's selected by default
+    defaultOption.disabled = true;  // This will ensure it cannot be re-selected once changed
+    selectElement.appendChild(defaultOption);
+
+    // Create and add the single problem option
+    let problemOption = document.createElement("option");
+    problemOption.value = "problem";  
+    problemOption.text = "Single Problem";
+    selectElement.appendChild(problemOption);
+
+    for (let psid in problemSets) {
+        if (problemSets.hasOwnProperty(psid)) {  // This check ensures you only get properties directly on the object, not its prototype chain.
+            console.log(psid)
+            let problem = problemSets[psid];            
+            let option = document.createElement("option");
+            option.value = psid;
+            if (problem.title)
+            {
+                option.text = problem.title;
+            }
+            else
+            {
+                option.text = problem.slug;
+            }
+            selectElement.appendChild(option);
+
+        }
+
+    }
+
+    selectElement.addEventListener('change', function(event) {
+        updateCard(event.target);
+    });
+    selectElement.className = 'form-control mt-2';  // Bootstrap styling
+
+    return selectElement
+
+}
+
+function makeRequirementSelect() {
+let requirementSelect = document.createElement("select");
+requirementSelect.name = "requirement_types";
+requirementSelect.className = 'form-control mt-2';  // Bootstrap styling
+let requirements = ['required', 'optional', 'choice'];
+for (let i = 0; i < requirements.length; i++) {
+    let option = document.createElement("option");
+    option.value = requirements[i];
+    option.text = requirements[i];
+    requirementSelect.appendChild(option);
+}
+requirementSelect.label = "Requirement"
+return requirementSelect
+}
+
+    function makeComfortLevelSelect() {
+    let comfortSelect = document.createElement("select");
+    comfortSelect.name = "comfort_levels";
+    comfortSelect.className = 'form-control mt-2';  // Bootstrap styling
+        
+        let comfort_levels = ['least', 'less', 'more', 'most'];
+        for (let i = 0; i < comfort_levels.length; i++) {
+            let option = document.createElement("option");
+            option.value = comfort_levels[i];
+            option.text = comfort_levels[i];
+            comfortSelect.appendChild(option);
+        }
+        comfortSelect.label = "Comfort"
+        return comfortSelect
+
+    }
+
+function createNewCard(selectedProblemId) {
+    let problemsDiv = document.getElementById("problems-div");
+    let cardnum = problemsDiv.childNodes.length;
+    let newSelectElement = makeProblemSelect();
+
+    // Pass the selected problem's data to the createCard function
+    let card = createCard(newSelectElement, cardnum, selectedProblemId);
+
+    // Append the card to the problemsDiv
+    problemsDiv.appendChild(card);
+}
+
+
+function clearElementContent(element) {
+    while (element.lastElementChild) {
+        element.removeChild(element.lastElementChild);
+    }
+}
+
+function makeSequenceField() {
+    let sequenceField = document.createElement("input");
+    sequenceField.type = "number";
+    sequenceField.name = "sequence";
+    sequenceField.className = 'form-control mt-2';  // Bootstrap styling
+    sequenceField.placeholder = "Sequence";
+    return sequenceField
+}
+
+function setCardBodyContent(cardBody, title, data) {
+    let card = cardBody.closest('.card');
+    let formRow = document.createElement("div");
+    formRow.className = "form-row";
+
+    let formCol1 = document.createElement("div");
+    formCol1.className = "col";
+    let formCol2 = document.createElement("div");
+    formCol2.className = "col";
+    let formCol3 = document.createElement("div");
+    formCol3.className = "col";
+    formCol2.appendChild(makeComfortLevelSelect());
+    formCol1.appendChild(makeRequirementSelect());
+    formCol3.appendChild(makeSequenceField());
+    formRow.appendChild(formCol1);
+    formRow.appendChild(formCol2);
+    formRow.appendChild(formCol3);
+    cardBody.appendChild(formRow)
+
+    const descriptionText = document.createElement('p');
+    descriptionText.className = 'card-text';
+    let description = "";
+    for (let key in data) {
+        if (data.hasOwnProperty(key)) {
+            description += key + ": " + data[key] + "\n";
+        }
+    }
+    descriptionText.innerText = description;
+    cardBody.appendChild(descriptionText);
+
+    const cardTitle = card.querySelector('.card-title');
+    if (data && data['title'])
+    {  
+        cardTitle.innerText = data['title'];
+    }
+    else if (data && data['slug'])
+    {
+        cardTitle.innerText = data['slug'];
+    }
+    else
+    {
+        cardTitle.innerText = "";
+    }
+}
+
+    </script>
+
+</script>
+{% endblock %}
+
+
+
+{% block content %}
+<h1>{{ 'Edit' if problemset else 'Create' }} a Problem Set</h1>
+
+<form method="post">
+    <div class="container">
+        <div class="row">
+            <div class="col">
+                <h3>Title</h3>
+                <input type="text" name="title" value="{{ problemset.title if problemset }}" required>
+            </div>
+        </div>
+        <div class="row">
+        <div class="col">
+            <label for="number_required">Number Required:</label>
+            <input style="width:50px" id="number_required" type="number" name="number_required" min=0, value=1>
+        </div>
+        </div>
+        <div class="row">
+            <div class="col-sm-2">
+                <h3>Problems</h3>
+            </div>
+            <div class="col-sm-2">
+                <button type="button" class="btn btn-primary btn-sm" onclick="createNewCard()">Add Problem</button>
+            </div>
+        </div>
+        <div class="row" id="problems-div">
+
+            
+            <!-- Dynamic problems addition here -->
+        </div>    
+
+        <div class="row"><p></p></div>
+
+
+    <div class="row">
+    <div class="col-sm-1">
+        <input type="submit" class="btn btn-success" value="{{ 'Update' if problemset else 'Create' }}">
+    </div>
+    <div class="col-sm-1">
+        <a href="{{ url_for('problemsets_page') }}" class="btn btn-secondary">Cancel</a>
+    </div>
+    {% if problemset %}
+    <div class="col-sm-1">
+    <a href="{{ url_for('delete_problemset', problemset_id=problemset.id) }}" class="btn btn-danger">Delete</a>
+    </div>
+    {% endif %}
+    
+    </div>
+    </div>
+</form>
+<script>
+{% if problemset %}
+    {% for item in problemset.items %}
+        {% if item.problem %}
+            createNewCard("prob-{{ item.problem.id }}");
+        {% else %}
+            createNewCard("ps-{{ item.nested_problemset.id }}");
+        {% endif %}
+    {% endfor %}
+{% endif %}
+</script>
+{% endblock %}

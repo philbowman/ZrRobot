@@ -1,0 +1,138 @@
+{% extends "base.j2" %}
+
+{% block title %}
+Main Page
+{% endblock %}
+
+{% block head %}
+<script>
+    // JavaScript for sorting tables
+    function sortTable(table, col, reverse) {
+        // Adapted from: https://stackoverflow.com/a/49041392
+        let tb = table.tBodies[0], // use `<tbody>` to ignore `<thead>` and `<tfoot>` rows
+            tr = Array.prototype.slice.call(tb.rows, 0), // put rows into an array
+            i;
+        reverse = -((+reverse) || -1);
+        tr = tr.sort(function (a, b) {
+            return reverse * (a.cells[col].textContent.trim()
+                .localeCompare(b.cells[col].textContent.trim())
+            );
+        });
+        for (i = 0; i < tr.length; ++i) tb.appendChild(tr[i]);
+    }
+
+    function makeSortable(table) {
+        // Adapted from: https://stackoverflow.com/a/49041392
+        let th = table.tHead, i;
+        th && (th = th.rows[0]) && (th = th.cells);
+        if (th) i = th.length;
+        else return; // if no `<thead>` then do nothing
+        while (--i >= 0) (function (i) {
+            let dir = 1;
+            th[i].addEventListener('click', function () { sortTable(table, i, (dir = 1 - dir)) });
+        }(i));
+    }
+
+    function updateCourseSelection(courseSelectElement)
+    {
+        // find all options that are selected
+        let selectedCourses = [];
+        for (let i = 0; i < courseSelectElement.options.length; i++) {
+            if (courseSelectElement.options[i].selected) {
+                selectedCourses.push(courseSelectElement.options[i].value);
+            }
+        }
+        selectNoneStudents();
+        for (let i = 0; i < selectedCourses.length; i++) {
+            let courseCheckbox = document.querySelector('[data-course-id="' + selectedCourses[i] + '"]');
+            courseCheckbox.checked = true;
+            selectAllStudentsInCourse(courseCheckbox);
+        }
+    }
+
+    function updateStudentSelection() {
+        var studentCheckboxes = document.querySelectorAll('[data-student-checkbox]');
+        var selectedStudentIds = [];
+
+        // Get selected student IDs
+        studentCheckboxes.forEach(function (checkbox) {
+            if (checkbox.checked) {
+                selectedStudentIds.push(checkbox.getAttribute('data-student-id'));
+            }
+        });
+
+        console.log(selectedStudentIds)
+        // Filter rows based on selected students
+        var problems = document.querySelectorAll('[id^="problem_table_"]');
+        problems.forEach(function (table) {
+            var rows = table.getElementsByTagName('tbody')[0].getElementsByTagName('tr');
+            for (var i = 0; i < rows.length; i++) {
+                var row = rows[i];
+                var studentId = row.getAttribute('data-student-id');
+                if (selectedStudentIds.length === 0 || selectedStudentIds.includes(studentId)) {
+                    row.style.display = ''; // Show the row
+                } else {
+                    row.style.display = 'none'; // Hide the row
+                }
+            }
+        });
+    }
+
+    function selectAllStudentsInCourse(courseCheckbox)
+    {
+        console.log(courseCheckbox)
+        var studentCheckboxes = document.querySelectorAll('[data-student-checkbox]');
+        studentCheckboxes.forEach(function (checkbox) {
+            if (checkbox.getAttribute('data-course-id') == courseCheckbox.getAttribute('data-course-id'))
+            {
+                if (courseCheckbox.checked == true){
+                    checkbox.checked = true;
+                }
+                else{
+                    checkbox.checked = false;
+                }
+                
+            }
+        });
+        updateStudentSelection();
+    }
+
+    function selectAllStudents() {
+        var studentCheckboxes = document.querySelectorAll('[data-student-checkbox]');
+        studentCheckboxes.forEach(function (checkbox) {
+            checkbox.checked = true;
+        });
+        updateStudentSelection();
+    }
+
+    function selectNoneStudents() {
+        var studentCheckboxes = document.querySelectorAll('[data-student-checkbox]');
+        studentCheckboxes.forEach(function (checkbox) {
+            checkbox.checked = false;
+        });
+        updateStudentSelection();
+    }
+
+    window.onload = function () {
+        var problems = document.querySelectorAll('[id^="problem_table_"]');
+        problems.forEach(function (table) {
+            makeSortable(table);
+        });
+
+        // Initially update student selection
+        updateStudentSelection();
+    };
+</script>
+{% endblock %}
+
+{% block sidebar %}
+    {% include 'problems_sidebar.j2'%}
+{% endblock %}
+
+{% block content %}
+<h1>CS50 Problems</h1>
+
+{% for problem in problems %}
+    {% include 'problem_partial.j2'%}
+{% endfor %}
+{% endblock %}

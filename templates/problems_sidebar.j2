@@ -1,0 +1,40 @@
+<li class="nav-item">
+    <h1>Main Page</h1>
+</li>
+
+<li class="nav-item">
+        <label for="course_select">Course</label>
+        <select id="course_select" name="course_select" multiple onchange="updateCourseSelection(this)">
+            <option value="" selected>All</option>
+
+            {% for course in courses %}
+            <option value="{{ course.id }}">{{ course.title }}</option>
+            {% endfor %}
+        </select>
+</li>
+
+<li class="nav-item">
+    <div id="student_filter_container">
+        <label>Filter by Students:</label>
+        <div id="student_scroll_box">
+            <button class="btn btn-sm btn-primary" onclick="selectAllStudents()">Select All</button>
+            <button class="btn btn-sm btn-primary" onclick="selectNoneStudents()">Select None</button>
+            <br>
+            {% for course in courses %}            
+                <input type="checkbox" data-course-checkbox data-course-id="{{ course.id }}" onchange="selectAllStudentsInCourse(this)">
+                <label>{{ course.title }}</label>
+                <ul>
+                    {% for student in students_by_course.get(course.id, []) %}
+                        <div class="student-checkbox">
+                            <li>
+                                <input type="checkbox" data-course-id="{{ course.id }}" data-student-checkbox data-student-id="{{ student.id }}" onchange="updateStudentSelection()" checked>
+                                <label>{{ student.name if student.name else student.email[:student.email.index('@')] }}</label>
+                            </li>
+                        </div>
+                    {% endfor %}
+                </ul>
+            {% endfor %}
+        </div>
+
+    </div>
+</li>

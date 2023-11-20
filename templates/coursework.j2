@@ -1,0 +1,11 @@
+
+{% extends "base.j2" %}
+{% set selected_submission_id = 0 %}
+
+{% block sidebar %}
+{% include 'coursework_sidebar.j2'%}
+{% endblock %}
+
+{% block content %}
+    {% include 'coursework_partial.j2'%}
+{% endblock %}

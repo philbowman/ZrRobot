@@ -1,0 +1,61 @@
+
+<div id="cw-submission-{{ coursework.id }}">
+    <div class="card">
+        <div class="card-header" id="submissions-heading-{{ coursework.id }}">
+            <button class="btn btn-link" data-toggle="collapse" data-target="#submissions-body-{{ coursework.id }}" aria-expanded="true" aria-controls="submissions-body-{{ coursework.id }}">
+                <h6 class="mb-0"></h6><i class="fa-solid fa-caret-down"></i> </button>Submissions for {{ coursework.title }} </h6>
+            
+        </div>
+        
+        
+        <div id="submissions-body-{{ coursework.id }}" class="collapse show" arlabelledby="submissions-heading-{{ coursework.id }}" data-parent="#cw-submission-{{ coursework.id }}">
+            <table class="table table-sm table-hover" id="cw_submissions_table_{{ coursework.id }}" border="1">
+                <thead>
+                    <tr>
+                        <th scope="col">student</th>
+                        <th scope="col">status</th>
+                        <th scope="col">state</th>
+                        <th scope="col">creationTime</th>
+                        <th scope="col">updateTime</th>
+                        <th scope="col">late</th>
+                        <th scope="col">draftGrade</th>
+                        <th scope="col">assignedGrade</th>
+                        <th scope="col">dev</th>
+                        <th scope="col">GC URL</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for submission in coursework.submissions %}
+                        <div class="submission-{{ submission.id }}" >
+                            {% if submission.late %}
+                                <tr class="table-danger" data-cw-id="{{ coursework.id }}">
+                            {% elif submission.status ==  "TURNED_IN" or submission.status == "RESUBMITTED" %}
+                                <tr class="table-warning" data-cw-id="{{ coursework.id }}">
+                            {% elif submission.status == "GRADED" %}
+                                <tr class="table-success" data-cw-id="{{ coursework.id }}">
+                            {% else %}
+                                <tr data-cw-id="{{ coursework.id }}">
+                            {% endif %}
+                                    <th scope="row">
+                                        <a href="mailto:{{ submission.student.email }}">{{ submission.student.name }}</a>
+                                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('submission_page', coursework_id=submission.coursework.id, submission_id=submission.id) }}">details</a>
+                                    </th>
+                                    <td>{{ submission.status }}</td>
+                                    <td>{{ submission.state }}</td>
+                                    <td>{{ submission.creationTime }}</td>
+                                    <td>{{ submission.updateTime }}</td>
+                                    <td>{{ submission.late }}</td>
+                                    <td>{{ submission.draftGrade }}</td>
+                                    <td>{{ submission.assignedGrade }}</td>
+                                        <td>{% if coursework.associatedWithDeveloper %}yes{% else %}no{% endif %}</td>
+                                    <td><a href="{{ submission.alternateLink }}">GC</a></td>
+
+                                </tr>
+                        </div>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+</div>
