@@ -3,3 +3,12 @@ students.csv
 studentwork/
 results/
 .DS_Store
+*.json
+secrets_parameters.py
+results/
+instance/
+logs/
+.venv/
+__pycache__
+*.db
+*.icloud
