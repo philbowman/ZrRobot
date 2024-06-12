@@ -7,10 +7,12 @@
 {% endblock %}
 
 {% block content %}
-    <h1><a href="{{ url_for('coursework_page', coursework_id=submission.coursework.id) }}">{{submission.coursework.title}}</a></h1>
-    <h2>{{submission.student.name }}</h2>
-
+<div class="card">
+    <h1 class="card-header">{{submission.coursework.title}}</h1>
+    <div class="card-body">
+    <h2 class="card-title">{{submission.student.name }} </h2>
     <ul>
+        <li>username: {{ submission.student.username }}</li>
         <li>status: {{ submission.status }}</li>
         <li>state: {{ submission.state.value }}</li>
         <li>creationTime: {{ submission.creationTime }}</li>
@@ -18,19 +20,29 @@
         <li>late: {{ submission.late }}</li>
         <li>draftGrade: {{ submission.draftGrade }}</li>
         <li>assignedGrade: {{ submission.assignedGrade }}</li>
-        <li>GC URL: <a href="{{ submission.url }}">{{ submission.url }}</a></li>
+        <li><a target="_blank" href="{{ submission.url }}">Open in Google Classroom</a></li>
         {% if submission.attachments %}
         <li> 
             Attachments:
             <ul>
                 {% for attachment in submission.attachments %}
-                <li><a href="{{attachment.url}}">{{attachment.title }}</a></li>
+                <li><a href="{{attachment.url}}">{{ attachment.title }}</a></li>
                 {% endfor %}
             </ul>
         </li> 
         {% endif %}
     </ul>
+    <div class="row">
+        <a class="btn btn-primary btn-sm col" href="{{ url_for('submission_pull', submission_id=submission.id) }}">Pull GC Data</a>
+        <a class="btn btn-success btn-sm col" href="{{ url_for('submission_grade', submission_id=submission.id, assigned_grade=0, rubric_doc=1, post_only=0, force=0) }}">Grade (draftGrade)</a>
+        <a class="btn btn-warning btn-sm col" href="{{ url_for('submission_post_grade', submission_id=submission.id) }}" >Post draft -> assigned</a>
+        <a class="btn btn-danger btn-sm col" href="{{ url_for('submission_grade', submission_id=submission.id, assigned_grade=1, rubric_doc=1, post_only=0, force=0) }}">Grade (assignedGrade)</a>
+        <a class="btn btn-outline-warning btn-sm col" href="{{ url_for('submission_clear_rubric', submission_id=submission.id) }}">Clear Rubric</a>
+        <a class="btn btn-outline-danger btn-sm col" href="{{ url_for('submission_grade', submission_id=submission.id, assigned_grade=1, rubric_doc=1, post_only=0, force=1) }}">Force draftGrade</a>
+    </div>
+    {% include 'rubric_manual.j2' %}
+
     {% include 'rubric.j2' %}
-    <a class="btn btn-success" href="{{ url_for('submission_grade', submission_id=submission.id) }}">Grade</a>
+    </div>
+</div>
 {% endblock %}
-```

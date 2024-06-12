@@ -7,18 +7,16 @@
 {% for sub in coursework.submissions %}
     {% if sub.id == selected_submission_id %}
         <li class="list-group-item list-group-item-primary"
-    {% elif sub.late %}
-        <li class="list-group-item list-group-item-danger"
-    {% elif sub.status ==  "TURNED_IN" or sub.status == "RESUBMITTED" %}
+    {% elif sub.draftGrade %}
         <li class="list-group-item list-group-item-warning"
-    {% elif sub.status == "GRADED" %}
+    {% elif sub.assignedGrade %}
         <li class="list-group-item list-group-item-success"
     {% else %}
-        <li class="list-group-item data-cw-id="{{ coursework.id }}"
+        <li class="list-group-item list-group-item-danger"
     {% endif %}
-     data-sublist-status="{{ sub.status }}">
+     data-cw-id="{{ coursework.id }}" data-sublist-status="{{ sub.status }}">
             
-            <a href="{{ url_for('submission_page', coursework_id=sub.coursework.id, submission_id=sub.id) }}">{{ sub.student.name }}</a>
+            <a href="{{ url_for('submission_page', coursework_id=sub.coursework.id, submission_id=sub.id) }}">{{ sub.student.name }} ({{sub.student.username if sub.student.username}})</a>
 
         </li>
 {% endfor %}

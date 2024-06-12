@@ -80,10 +80,19 @@ def add_meeting(session, meeting):
     return dbmeeting
 
 @runtimer
-def list_section_events(session, schools):
+def list_section_events(session, schools, pull=False):
 
-    # List section events
-    section_events, terms = PSQuery.list_section_events(schools=schools, pull=False)
+    try:
+        # List section events
+        section_events, terms = PSQuery.list_section_events(schools=schools, pull=pull)
+    except Exception as e:
+        logger.error("Failed to list section events.")
+        logger.error(e)
+        if pull:
+            return
+        logger.info("Retrying with pull=True")
+        section_events, terms = PSQuery.list_section_events(schools=schools, pull=True)
+        
     
     for dcid, t in terms.items():
         # Create Term
@@ -105,7 +114,16 @@ def list_section_events(session, schools):
             year = session.merge(Year(id=year.id, ps_dcid=t['yearid'], start_date=datetime.datetime.strptime(t['year_firstday'], "%Y-%m-%d").date(), end_date=datetime.datetime.strptime(t['year_lastday'], "%Y-%m-%d").date(), abbreviation=t['year_abbreviation']))
 
     # List bell schedules
-    bell_schedules, day_schedules = PSQuery.list_bell_schedules(schools=schools)
+    try:
+        bell_schedules, day_schedules = PSQuery.list_bell_schedules(schools=schools, pull=pull)
+    except Exception as e:
+        logger.error("Failed to list bell schedules.")
+        logger.error(e)
+        if pull:
+            return
+        logger.info("Retrying with pull=True")
+        bell_schedules, day_schedules = PSQuery.list_bell_schedules(schools=schools, pull=True)
+        
     
     # Add schools to db
     add_schools(session, schools)
@@ -139,10 +157,11 @@ def list_section_events(session, schools):
 
 def make_ps_roster(session, section):
     psstudents =  Query().roster({'section_dcid': section.ps_dcid})
-    for student in section.students:
-        section.students.remove(student)
-        session.commit()
-        session.flush()
+    # for student in [s for s in section.students]:
+    #     section.students.remove(student)
+    #     session.commit()
+    #     session.flush()
+    desired_students = []
     for student in psstudents:
         # students_dcid
         # students_id
@@ -162,9 +181,7 @@ def make_ps_roster(session, section):
                 name=student['lastfirst'],
                 grade=student['grade_level']
                 )
-            session.add(dbstudent)
-            session.commit()
-            session.flush()
+            session.add(dbstudent)            
         else:
             dbstudent = session.merge(Student(
                 id=dbstudent.id,
@@ -174,11 +191,16 @@ def make_ps_roster(session, section):
                 name=student['lastfirst'],
                 grade=student['grade_level']
                 ))
-        section.students.append(dbstudent)
+        # section.students.append(dbstudent)
         session.commit()
+        session.flush()
+        desired_students.append(dbstudent)
+    section.students.clear()
+    section.students = desired_students
+    session.commit()
     return section.students
 
 
 if __name__ == "__main__":
     schools = {hs_schoolid: "HS"}
-    list_section_events(schools)
+    list_section_events(schools, pull=True)

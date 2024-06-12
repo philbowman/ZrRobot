@@ -1,0 +1,59 @@
+{% if manual_input_problems %}
+    <div class="card">
+    <h3 class="card-header">Manual Grades</h3>
+        <div class="card-body">
+        <form class="form_control" method="POST" action="{{ url_for('submission_grade_manual', submission_id=submission.id) }}">
+        
+        <h6 class="card-subtitle mb-2 text-muted">The following problems require manual grading.  Please enter a score for each problem.</h6>
+
+        {% for mip in manual_input_problems%}
+
+            {% for problemid, problem in mip.items() %}
+                {% include 'rubric_manual_problem.j2' %}
+            {% endfor %}
+
+
+        {% endfor %}
+
+        <div class="card">
+            <h5 class="card-header">options</h5>
+            <div class="card-body">
+
+                <div class="form-check">
+
+                    <input id="rubric_doc" class="form-check-input" type="checkbox" name="rubric_doc" value="on" checked id="assignedGrade_checkbox" onchange="document.getElementById('draftGrade_checkbox').checked=false;">
+                    <label class="form-check-label" for="rubric_doc">Post rubric doc</label>
+                </div>
+
+                <div class="form-check">
+                    <input id="grades_to_post" class="form-check-input" type="checkbox" name="grades_to_post" value="on" id="assignedGrade_checkbox" onchange="document.getElementById('draftGrade_checkbox').checked=false;">
+                    <label class="form-check-label" for="grades_to_post">Post assigned grade</label>
+
+                </div>
+            </div>
+
+        
+        <button class="btn btn-primary" type="submit">Submit Scores</button>
+        </div>
+    
+        </form>
+        </div>
+    </div>
+    {% block bottomscript %}
+    <script>
+    function checkbox_criterion(checkboxElement)
+    {
+        c_score_element = checkboxElement.parentElement.querySelector("input[name='c_score']");
+        if (checkboxElement.checked)
+        {
+            c_score_element.value = 1; 
+        }else{
+            c_score_element.value = 0;
+        }
+
+    }
+    
+    </script>
+    {% endblock %}
+{% endif %}
+

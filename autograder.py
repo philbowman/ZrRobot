@@ -8,76 +8,122 @@ from models import *
 from helpers import *
 from logdef import *
 from enum import Enum
+import markdownify
+import html
 
 class GradingCategory(Enum):
-    ENGAGEMENT = 8000
-    PROCESS = 800
-    PRODUCT = 80
-    EXPERTISE = 8
+    ENGAGEMENT = 1000
+    PROCESS = 100
+    PRODUCT = 10
+    EXPERTISE = 1
 
     # 0: invalid
     # 1:
     # 2:
 
-    def grade(self, percentage):
-        grade = 8 * int(percentage) - 1
-        if grade < 1:
-            return 0
-        return grade
+    def scaled_grade(self, grade):
+        return grade * self.value
+
+    def grade(self, grade):
+        if type(grade) in [tuple, list]:
+            if grade[1] == 0:
+                return grade[0]
+            if grade[1] > 1 and grade[1] < 9:
+                percentage = (grade[0] + 8-grade[1]) / 8
+            else:   
+                percentage = grade[0] / grade[1]
+
+        else:
+            percentage = grade
+        return max(4,  int(round(percentage*8)) - 1)
 
 class Rubric(dict):
-    style = """        
-    <style>
-            ul.rubric {
-                list-style-type: none;margin-left: 0;padding-left: 1em;text-indent: -1em;
-                } 
-            .nono:before {
-                content: "🔴";
-                padding-right: 5px;
-                }
-            .yesyes:before {
-                content: "🟢";
-                padding-right: 5px;
-                }
-            .maybemaybe:before {
-                content: "🟡";
-                padding-right: 5px;
-                }
-            .nomatter:before {
-                content: "⚪";
-                padding-right: 5px;
-                }        
-        </style>
-        """
 
-    def __init__(self, r, submission, problemset):
+
+    def __init__(self, r, submission, problemset, student=None, title=None,  base=None, parent=None):
+        if not r:
+            r = {'title': 'Rubric', 'sequence': 0, 'requirement_type': 'OPTIONAL', 'item_id': '', 'problems': {}, 'num_required': 0, 'parent': None, 'grades': {}, 'overall': {}, 'timestamp': ''}
+        
+        
         super().__init__(r)
         self.problemset = problemset
+        
+        if submission and not student:
+            student = submission.student
+        self.student = student
         self.submission = submission
+
+        if parent and not base:
+            base = parent.base
+        self.parent = parent
+        self.base = base or self
+
+        self['title'] = title
+        self.problemsets = {}
+        
+        if problemset:
+            self['title'] = problemset.get_title()
+            self.setdefault('sequence', 0)
+            self.setdefault('requirement_type', 'REQUIRED')
+            self['item_id'] = problemset.id_string()
+            self.setdefault('problems', {})
+            self['num_required'] = problemset.num_required
+            self.setdefault('grades', {})
+            self.setdefault('comments', [])
+            self.base.problemsets[problemset.id_string()] = self
+            self.problemsets[problemset.id_string()] = self
+            self['weightings'] = {}
+            self.setdefault('avg_method', 'bool')
 
         self.cur_criterion = None
         self.cur_category = None
         self.cur_problem = None
-        
-        self['title'] = problemset.get_title()
-        self.setdefault('sequence', 0)
-        self.setdefault('requirement_type', 'REQUIRED')
-        self['item_id'] = problemset.id_string()
-        self.setdefault('problems', {})
-        self['num_required'] = problemset.num_required
-        self.setdefault('parent', None)
-        self['grades'] = {}
-
         self.cur_problemset = self
-        self.problemsets = {problemset.id_string(): self}
+        
+        self.style = """        
+        <style>
+                ul.rubric {
+                    list-style-type: none;margin-left: 0;padding-left: 1em;text-indent: -1em;
+                    } 
+                .nono:before {
+                    content: "🔴";
+                    padding-right: 5px;
+                    }
+                .yesyes:before {
+                    content: "🟢";
+                    padding-right: 5px;
+                    }
+                .maybemaybe:before {
+                    content: "🟡";
+                    padding-right: 5px;
+                    }
+                .nomatter:before {
+                    content: "⚪";
+                    padding-right: 5px;
+                    }     
+                .problemset {
+                    margin-top: 15px;
+                }   
+            </style>
+            """
 
+
+    def avg_method(self, method):
+        if self.cur_problem:
+            self.cur_problem['avg_method'] = method
+        else:
+            self['avg_method'] = method
+        return self
 
     def problemset_exists(self, psitem_id):
-        if psitem_id in self.problemsets:
+        if self.get_problemset(psitem_id):
             return True
         return False
 
     def problem(self, psitem=None, psitem_id=None):
+        ps = None
+
+        # clear all current_*'s with rubric.problem()
         if not psitem and not psitem_id:
             self.cur_problem = None
             return self.criterion()
@@ -85,58 +131,109 @@ class Rubric(dict):
         if not psitem_id:
             psitem_id = psitem.id_string()
         
+        # clear current_*'s if this rubric's parent problemset is called with rubric.problem()
+        if self['item_id'] == psitem_id:
+            return self.problem()
+
         # handle added problemsets
         if psitem_id.startswith('ps-'):
-            if not self.problemset_exists(psitem_id):
+            ps = self.get_problemset(psitem_id)
+            if not ps:
                 item_details = {
                     'item_id': psitem_id,
                     'title': psitem.get_title(),
                     'sequence': psitem.sequence,
                     'requirement_type': psitem.requirement_type.name,
                     'comfort_level': psitem.comfort_level.name,
+                    'avg_method': 'bool',
                     'grades': {},
                 }
-                self.problemsets[psitem_id] = Rubric(item_details, self.submission, psitem.nested_problemset)
-                item_details['problems'] = self.problemsets[psitem_id]['problems']
-                self.problemsets[psitem_id]['parent'] = self['item_id']
+
+                # create a new rubric to be nested for the added problemset and add it to the base problemsets for retrieval of rubric
+                ps = Rubric(item_details, self.submission, psitem.nested_problemset, parent=self)
+                self.base.problemsets[psitem_id] = ps
+                
+                # copy problems over to item_details for retrieval during scoring & reporting
+                item_details['problems'] = self.base.problemsets[psitem_id]['problems']
+
+                # add the item details only to the 'problems' list (adding the rubric here would create circular dependency)
                 self['problems'][psitem_id] = item_details
-            self.cur_problem = self['problems'][psitem_id]
-            return self.problemsets[psitem_id]
         
         # handle added problems
-        elif psitem_id not in self['problems']:
-            self['problems'][psitem_id] = {
-                'item_id': psitem_id,
-                'title': psitem.get_title(),
-                'sequence': psitem.sequence,
-                'requirement_type': psitem.requirement_type.name,
-                'comfort_level': psitem.comfort_level.name,
-                'grades': {},
-                'criteria': {}
-            }                       
+        else:
+            if psitem_id not in self['problems']:
+                self['problems'][psitem_id] = {
+                    'item_id': psitem_id,
+                    'title': psitem.get_title(),
+                    'sequence': psitem.sequence,
+                    'requirement_type': psitem.requirement_type.name,
+                    'comfort_level': psitem.comfort_level.name,
+                    'grades': {},
+                    'criteria': {},
+                    'avg_method': getattr(psitem.target(), 'avg_method', None) or 'bool'
+                }                       
         
+        # set current problem for chaining method calls i.e. rubric.problem(psitem).criterion('style')
         self.cur_problem = self['problems'][psitem_id]        
 
+
+
+        # sort self['problems'] by sequence
+        # self['problems'] = dict(sorted(self['problems'].items(), key=lambda x: x[1]['sequence']))
+
+        # return nested problemset if called
+        if ps:
+            return ps
         return self
 
-    # the problem set should already exist when this is called. 
-    # the topmost parent problemset is self, which is added to self.problemsets on instantiation
-    # def ps(self, psitem=None, psitem_id=None):
-    #     if not psitem and not psitem_id:
-    #         psitem_id = self['psitem_id']            
-    #     elif not psitem_id:
-    #         psitem_id = psitem.id_string()
+    def coursework(self, cw_rubric):
+        cw_rubric.total_scores()
+        self.cur_problem['grades'] = cw_rubric['grades']
+        self.cur_problem['overall'] = cw_rubric['overall']
+        self.cur_problem['problems'] = cw_rubric['problems']
+        self.base.problemsets[self.cur_problem['item_id']] = cw_rubric
+        return self
 
-    #     self.cur_problemset = self.problemsets[psitem_id]
-    #     return self.cur_problemset
-
-    def criterion(self, criterion_title=None, max_points=1):
-        if not criterion_title:
-            self.cur_criterion = None
+    def criterion(self, criterion_title=None, max_points=None, criterion_num=None):
+        # clear all current_*'s with rubric.criterion() (or cascaded from rubric.problem())
+        self.cur_criterion = None
+        if not criterion_title and not criterion_num: 
             return self.category()
-        if criterion_title not in self.cur_problem['criteria']:
-            self.cur_problem['criteria'][criterion_title] = {'title': criterion_title, 'grading_categories': [], 'score': -1, 'max_points': max_points, 'grades': {}}
-        self.cur_criterion = self.cur_problem['criteria'][criterion_title]
+
+        # find and set current cr   iterion based on criterion_num
+        if criterion_num != None:
+            for criterion in self.cur_problem['criteria'].values():
+                if criterion['sequence'] == criterion_num:
+                    self.cur_criterion = criterion
+        # or arbitrarily number criteria as they are added from the autograder
+        else:
+            criterion_num = len(self.cur_problem['criteria']) + 1
+        
+
+        # find, create or update the criterion based on criterion_title
+        if criterion_title:
+            # find and set current criterion based on criterion_title
+            if not self.cur_criterion:
+                if criterion_title in self.cur_problem['criteria']:
+                    self.cur_criterion = self.cur_problem['criteria'][criterion_title]
+            
+            # create new criterion
+            if not self.cur_criterion:
+                self.cur_problem['criteria'][criterion_title] = {'title': criterion_title, 'grading_categories': [], 'score': -1, 'max_points': max_points or 1, 'grades': {}, 'sequence': criterion_num}
+                self.cur_criterion = self.cur_problem['criteria'][criterion_title]
+
+            # update existing criterion
+            else:
+                self.cur_criterion['title'] = criterion_title
+                self.cur_criterion['max_points'] = max_points or self.cur_criterion['max_points']
+                self.cur_criterion['sequence'] = criterion_num or self.cur_criterion['sequence']
+
+        if not self.cur_criterion:
+            raise Exception(f"Could not find or create criterion #{criterion_num} with title {criterion_title}")
+
+        # sort criteria by sequence
+        self.cur_problem['criteria'] = dict(sorted(self.cur_problem['criteria'].items(), key=lambda x: x[1]['sequence']))
+
         return self
     
     def category(self, category_title=None):
@@ -149,29 +246,46 @@ class Rubric(dict):
         self.cur_category = cat
         return self
     
+    def weight(self, weight):
+        self['weightings'].setdefault(self.cur_criterion['title'], {}) 
+        if self.cur_category:
+            self['weightings'][self.cur_criterion['title']][self.cur_category.name] = weight
+        else:
+            self['weightings'][self.cur_criterion['title']]['all'] = weight
+        return self
+
     def score(self, input_score=None, max_points=None):
         if input_score is not None and max_points is not None:
             self.cur_criterion['score'] = input_score
             self.cur_criterion['max_points'] = max_points
 
-            # if not self.cur_criteria['grading_categories']:
-            #     self.cur_criteria['grades'].append(int(input_score / max_points) * 8 - 1)
-            # else:
-            #     
-            #         
+        elif input_score is not None and self.cur_criterion.get('max_points'):
+            self.cur_criterion['score'] = input_score
 
         return self.cur_criterion['score']
     
-    def overall(self, input_problem=None):
+    def     overall(self, input_problem=None):
         if not input_problem:
             problem = self
         else:
             problem = input_problem
         overall = {}
-        for category, grades in problem['grades'].items():
-            overall[category] = bool_avg(grades, problem.get('num_required'))
+        if problem['avg_method'] == 'bool':
+            for category, grades in problem['grades'].items():  
+                overall[category] = bool_avg(grades, problem.get('num_required'))
+        if problem['avg_method'] == 'mean':
+            for category, grades in problem['mean_grades'].items():
+                overall[category] = bool_avg(grades['score'])
         return overall
     
+    def overall_int(self):
+        overall = 0
+        for category, grade in self['overall'].items():
+            overall += GradingCategory[category].scaled_grade(bool_avg([grade], self['num_required']))
+        if overall < 1000:
+            overall += 1000
+        return overall
+
     @staticmethod
     def combine_grades(source, target):
         for key, value in source.items():
@@ -198,41 +312,109 @@ class Rubric(dict):
                 best = problem_id
         return problems.pop(best)
 
-    def total_scores(self):
+    def get_problemset(self, psitem_id):
+        if psitem_id == self['item_id']:
+            return self
+        if psitem_id in self.base.problemsets:
+            return self.base.problemsets[psitem_id]
+        if psitem_id in self.problemsets:
+            return self.problemsets[psitem_id]
+        for problemset_id, problemset in self.problemsets.items():
+            if problemset_id == self['item_id']:
+                continue
+            ps = problemset.get_problemset(psitem_id)
+            if ps:
+                return ps
+        return None
+
+    def total_scores(self, force=False):
+        if not force and self['grades'] and self['overall'] and not [p for p in self['problems'].values() if not p['overall'] and not p['grades']]:
+            return self
         num_required = self['num_required']
         num_completed = 0
         choice_grades = {}
+        optional_grades = {}
+        self['grades'] = {}
 
         for problem_id, problem in self['problems'].items():
-            if problem['item_id'].startswith('ps-'):
-                self.problemsets[problem['item_id']].total_scores()
-                problem['grades'] = self.problemsets[problem['item_id']]['grades']
-                problem['overall'] = self.problemsets[problem['item_id']]['overall']
+            problem['mean_grades'] = {}
+            problem['grades'] = {}
+            if problem_id.startswith('cw-'):
+                cw = self.get_problemset(problem_id)
+                problem['grades'] = cw['grades']
+                problem['overall'] = cw['overall']
+            if problem_id.startswith('ps-'):
+                ps = self.get_problemset(problem_id)
+                if not ps:
+                    logger.warning(f"Problemset {problem_id}-{problem['title']} not found. Removing from 'problems'")
+                    problem = {}
+                    continue
+                ps.total_scores(True)
+                problem['grades'] = ps['grades']
+                problem['overall'] = ps['overall']
             else:
                 for criterion_title, criterion in problem['criteria'].items():
                     for category in criterion['grading_categories']:
+                        # if criterion_title in self['weightings'].keys():
+                        #     if category in self['weightings'][criterion_title].keys():
+                        #         cat_weight = self['weightings'][criterion_title][category]
+                        #     elif 'all' in self['weightings'][criterion_title].keys():
+                        #         cat_weight = self['weightings'][criterion_title]['all']
+                        #     else:
+                        #         cat_weight = 1
+                        
+                        # adjust running total of scores for mean average
+                        problem.setdefault('mean_grades', {})
+                        problem['mean_grades'].setdefault(category, {"earned_points": 0, "max_points": 0})
+                        problem['mean_grades'][category]['earned_points'] += max(criterion['score'], 0)
+                        problem['mean_grades'][category]['max_points'] += criterion['max_points']
+                        
                         cat = GradingCategory[category]
-                        criterion['grades'][category] = [cat.grade(criterion['score'] / criterion['max_points'])]
+
+                        # calculate 8-point scale score for criterion
+                        g = cat.grade((criterion['score'], criterion['max_points']))
+
+                        # round up a 7 (B) to an 8 (A) if this is a "more comfortable" (harder) problem
+                        if problem['comfort_level'] in ["MORE", "MOST"] and g == 7:
+                            g += 1
+                        criterion['grades'][category] = [g]
                         problem.setdefault('grading_categories', [])
-                        problem.setdefault('avg_grades', [])
                         problem['grading_categories'].append(category)
-                        problem['avg_grades'] += criterion['grades'][category]
+
+                        problem.setdefault('avg_grades', [])
+                        problem['avg_grades'].append(g)
+                        
                     self.combine_grades(criterion['grades'], problem['grades'])
-                problem['overall'] = self.overall(problem)
+                for category, grades in problem['mean_grades'].items():
+                    mg = GradingCategory[category].grade((grades['earned_points'], grades['max_points']))
+                    if problem['comfort_level'] in ["MORE", "MOST"]:
+                        mg += 1
+                    grades['score'] = [mg]
+            problem['overall'] = self.overall(problem)
             if problem['requirement_type'] == 'REQUIRED':
                 self.combine_grades(problem['overall'], self['grades'])
                 num_completed += 1
             elif problem['requirement_type'] == 'CHOICE':
                 choice_grades[problem_id] = problem
-        
+            elif problem['requirement_type'] == 'OPTIONAL':
+                optional_grades[problem_id] = problem
+        self['problems'] = {k: v for k, v in self['problems'].items() if v}
+
         while num_completed < num_required:
             best_problem = self.best_problem(choice_grades)
             self.combine_grades(best_problem.get('overall', {}), self['grades'])
             num_completed += 1
 
-        self['overall'] = self.overall()
+        overall = self.overall()
+        for problem_id, problem in optional_grades.items():
+            for category, score in problem.get('overall', {}).items():
+                if score > overall.get(category, 0):
+                    self.combine_grades({category: score}, self['grades'])
+                    overall = self.overall()
+
+        self['overall'] = overall
         return self
-    
+
     # elif not self.cur_criterion:
 
 
@@ -248,16 +430,26 @@ class Rubric(dict):
     #             d[k] = dict(self['problems'][k])
     #     return d
 
-    def html_grades_oneline(self, grades):
-        return f"{','.join([str(g) for g in grades.values()])} ({', '.join(list(set(k for k in grades.keys())))})"
+    def html_grades_oneline(self, grades, required=True):
+
+        return ", ".join([f"{k}: {lettergrade(v, required)}" for k, v in grades.items()]) 
+        # return f"{','.join([lettergrade(g, required) for g in grades.values()])} ({', '.join(list(set(k for k in grades.keys())))})"
 
     def html_problem(self, problem, requirement_type):
         grades = [g for g in problem["grades"].values()]
         requirement_type = problem["requirement_type"]        
-        html_content = f"<li class='{self.html_grade_class(grades, requirement_type)}'> {sum([0 for i in [problem['sequence']] if i is None] + [i for i in [problem['sequence']] if i is not None ])}. {problem['title']}:  ({problem['requirement_type']})"
-        html_content += '<ul class="rubric criteria">'
+        html_content = f"<li class='{self.html_grade_class(grades, requirement_type)}'> {sum([0 for i in [problem['sequence']] if i is None] + [i for i in [problem['sequence']] if i is not None ])}. {problem['title']}:  ({problem['comfort_level']})"
+        html_content += "(" + self.html_grades_oneline(problem['overall'], requirement_type=='REQUIRED') + ")"
+        p_id = problem['item_id']
+        html_content += f'<ul problem_id="{p_id}" class="rubric criteria">'
         for criterion, grade in problem['criteria'].items():
-            html_content += f"<li class='{self.html_grade_class([v for v in grade['grades'].values()], requirement_type)}'> {grade['title']}: {grade['score']}/{grade['max_points']} = {self.html_grades_oneline(grade['grades'])}"
+            grade_class = self.html_grade_class([v for v in grade['grades'].values()], requirement_type)
+            required = requirement_type == 'REQUIRED'
+            if grade['max_points'] > 1:
+                html_content += f"<li onclick='override_score(this, {grade['score']}, {grade['max_points']}, {html.escape(grade['title'])});' class='{grade_class}'> {html.escape(grade['title'])}: {grade['score']}/{grade['max_points']} = {self.html_grades_oneline(grade['grades'], required)}"
+            else:
+                html_content += f"<li onclick='override_score(this, {grade['score']}, {grade['max_points']}, {html.escape(grade['title'])});' class='{grade_class}'> {html.escape(grade['title'])}: {grade['score']}/{grade['max_points']} ({', '.join(k for k in grade['grades'].keys())})"
+            
             # html_content += self.html_grades(grade['grades'], requirement_type)
             html_content += '</li>'
         html_content += '</ul></li>'
@@ -267,21 +459,30 @@ class Rubric(dict):
     def html_problemset(self, problemset, requirement_type, level):
         grades = [g for g in problemset["grades"].values()]
         requirement_type = problemset["requirement_type"]
-        html_content = f"<li class='{self.html_grade_class(grades, requirement_type)}'> {int(problemset['sequence'])}. {problemset['title']}:  ({problemset['requirement_type']})"
-        html_content += self.html_grades(problemset['grades'], requirement_type)
-        html_content += '<ul class="rubric">'
+        html_content = ""
+        ps_id = problemset['item_id']
+        if int(problemset['sequence']) > 0:
+            html_content += f"<ul problemset_id='{ps_id}'><li class='{self.html_grade_class(grades, requirement_type)} problemset'> {int(problemset['sequence'])}. {problemset['title']}"
+        
+            html_content += " (" + self.html_grades_oneline(problemset['overall']) + ")"
+        html_content += f'<ul class="rubric" problemset_id="{ps_id}">'
         for problem_id, problem in problemset['problems'].items():
             if problem_id.startswith("ps-"):
                 html_content += self.html_problemset(problem, requirement_type, level+1)
             else:
                 html_content += self.html_problem(problem, requirement_type)
-        html_content += '</ul><li>'
+
+        html_content += '</ul>'
+        if int(problemset['sequence']) > 0:
+            html_content += "</li></ul>"
+
         return html_content
     
-    def html_grades(self, grades, requirement_type):
+    def html_grades_overall(self, grades, requirement_type):
         html_content = '<ul class="rubric grades">'
         for category, grade in grades.items():
-            html_content += f"<li class={self.html_grade_class(grade, requirement_type)}> {category}:  {grade}</li>"
+            grade_class = self.html_grade_class(grade, requirement_type)
+            html_content += f"<li class={grade_class}> {category}:  {lettergrade(grade)}</li>"
         html_content += '</ul>'
         return html_content
 
@@ -295,7 +496,7 @@ class Rubric(dict):
         for g in grade:
             if type(g) is list:
                 classes.append(self.html_grade_class(g, requirement_type))
-            elif int(g) < 7 and int(g) > 3:
+            elif int(g) < 7 and int(g) > 4:
                 classes.append("maybemaybe")
             elif int(g) > 6:
                 classes.append("yesyes")
@@ -312,23 +513,105 @@ class Rubric(dict):
             c = "nono"
         return c
 
-    def html(self):
-
-        html_content = self.style
-        html_content += "<h1>" + self['title'] + "</h1>"
-        html_content += f"<h2 class={self.html_grade_class([v for v in self['overall'].values()], 'REQUIRED')}>Overall</h2>"
-        html_content += self.html_grades(self['overall'], self['requirement_type'])
+    def html(self, style=True):
+        if not self['problems']:
+            return ""
+        if style:
+            html_content = self.style
+        else:
+            html_content = ""
+        html_content += "<div class='card'>"
+        html_content += "<h1 class='card-header'>RUBRIC: " + self['title'] + "</h1><div class='card-body'>"
+        html_content += "<h3>Overall</h3>"
+        html_content += self.html_grades_overall(self['overall'], self['requirement_type'])
+        html_content += "<h3>Criteria</h3>"
         html_content += self.html_problemset(self, 'REQUIRED', 2)
+        html_content += "<h3>Comments</h3>"
+        for itemid, problemset in self.base.problemsets.items():
+            html_content += self.html_comments(problemset['comments'])
 
-        
+        html_content += f"<br><p>Updated {self.get('timestamp', '?'*10)}</p></div></div>"
 
         return html_content
+    
+    def html_ul_from_list(self, l):
+        html_content = "<ul>"
+        for item in l:
+            if type(item) in [list, tuple, set]:
+                html_content += self.html_ul_from_list(item)
+            elif type(item) is dict:
+                html_content += self.html_ul_from_dict(item)
+            else:
+                html_content += f"<li>{html.escape(str(item))}</li>"
+        html_content += "</ul>"
+        return html_content
+
+    def html_ul_from_dict(self, d):
+        html_content = "<ul>"
+        for title, item in d.items():
+            html_content += f"<li><strong>{html.escape(title)}</strong>:"
+            if type(item) in [list, tuple, set]:
+                html_content += self.html_ul_from_list(item) + "</li>"
+            elif type(item) is dict:
+                html_content += self.html_ul_from_dict(item) + "</li>"
+            else:
+                html_content += f" {html.escape(str(item))}</li>"
+        html_content += "</ul>"
+        return html_content
+
+
+    def html_comments(self, comments=None):
+        html_content = "<ul class='comments'>"
+        for comment in self['comments']:
+            if type(comment) in [list, tuple, set]:
+                html_content += "<li>" + self.html_ul_from_list(comment) + "</li>"
+            elif type(comment) is dict:
+                html_content += "<li>" + self.html_ul_from_dict(comment) + "</li>"
+            else:
+                html_content += f"<li>{html.escape(str(comment))}</li>"
+        return html_content + "</ul>"
+
+
+
+        for comment in self['comments']:
+            if type(comment) in [list, tuple, set]:
+                for c in comment:
+                    html_content += self.html_from_list(comment)
+
+    # def html_comments(self, comments, new_ul=True, new_li=False):
+    #     html_content = ""
+    #     if type(comments) in [list, tuple, set]:
+    #         for comment in comments:
+    #             html_content = self.html_comments(comment, False, True)
+    #     elif type(comments) is dict:
+    #         for title, comment in comments.items():
+    #             if type(comment) not in [list, tuple, set, dict]:
+    #                 html_content += f"<strong>{html.escape(title)}</strong>: {html.escape(str(comment))}"
+    #             else:
+    #                 html_content += f"<strong>{html.escape(title)}</strong>: {self.html_comments(comment, True, True)}"
+    #     else:
+    #         html_content += html.escape(str(comments))
+    #     if new_li:
+    #         html_content = "<li>" + html_content + "</li>"
+    #     if new_ul:
+    #         html_content = "<ul class='rubric comments'>" + html_content + "</ul>"
+    #     return html_content
+
+    def md(self):
+        return html.unescape(markdownify.markdownify(self.html(style=False)))
+    
+    def comment(self, comment=None, overwrite=False):
+        if overwrite or not comment:
+            self['comments'] = []
+        if comment not in self['comments']:
+            self['comments'].append(comment)
 
 class AutoGrader():
     def __init__(self, problem, categories=None):
         if not categories:
             self.grading_categories = ["Engagement", "Process", "Product", "Expertise"]
         self.problem = problem
+        self.projectrepo = None
         if problem.autograder:
             self.grader = getattr(self, problem.autograder)
         else:
@@ -338,7 +621,16 @@ class AutoGrader():
         return self.grader.__name__
 
     def grade(self, rubric):
+        rubric.avg_method(self.problem.avg_method)
         return self.grader(rubric)
+
+    def submitted_anything(self, rubric):
+        if [a for a in rubric.submission.attachments if a.id != rubric.submission.rubric_doc_id and a.student_created()]:
+            rubric.criterion('completion').category('ENGAGEMENT').score(1, 1)
+        else:
+            rubric.criterion('completion').category('ENGAGEMENT').score(0, 1)
+
+        return rubric
 
     def no_grader(self, rubric):
         return {}
@@ -352,162 +644,100 @@ class AutoGrader():
         if problemsubmission:
             rubric.criterion('style50').category('PRODUCT').score(problemsubmission.style50_score, 1)
             rubric.criterion('check50').category('EXPERTISE').score(problemsubmission.checks_passed, problemsubmission.checks_run)
+            rubric.student.set_github_username(problemsubmission.github_username)
+        return rubric
+    
+    def github_account_profile(self, rubric):
+        repo = self.repo(rubric)
+        repo.md_init()
+        
+        rubric.criterion('correctly named').category('PRODUCT').score(int(repo.is_profile_repo()), 1)
+        rubric.criterion('submitted link leads to profile page').category('PRODUCT').score(int(repo.submitted_link_to_profile()), 1)
+
+        rubric.criterion('includes a link').category('EXPERTISE').score(int(len(repo.md_elements['links']) > 0), 1)
+        rubric.criterion('includes an image').category('EXPERTISE').score(int(len(repo.md_elements['images']) > 0), 1)
+
+        num_md_used = repo.num_md_elements_used(excluded_elements=['images', 'links'])
+        rubric.criterion('includes 4 other types of formatting').category('EXPERTISE').score(min(4, num_md_used), 4)
+
+        rubric.comment({"Elements used": repo.md_elements_used()})
+        return rubric
+
+    @runtimer
+    def website_html(self, rubric):
+        repo = self.repo(rubric)
+        repo.website_init()
+        rubric.comment(repo.html_stat_dict())
+        if repo.stats['html_count'] == 0:
+            html_count = 1
+        else:
+            html_count = repo.stats['html_count']
+        criteria = {
+                    "Exactly 1 opening `<html>` tag on each page": round(repo.stats['html_tags'] / html_count, 1), 
+                    "No content after closing `</html>` tag on each page": round(repo.stats['nojunk'] / html_count, 1), 
+                    "Exactly 1 `<head>`...`</head>` section on each page": round(repo.stats['head_tag'] / html_count, 1), 
+                    "Exactly 1 `<title>`...`</title>` on each page": round(repo.stats['title_tag'] / html_count, 1), 
+                    "Exactly 1 `<body>`...`</body>` on each page": round(repo.stats['body_tag'] / html_count, 1), 
+                    "At least one heading (`<h1>`...`</h1>`, `<h2>`...`</h2>`, etc.)  on any page": int(bool(repo.stats['heading_tag'])),
+                    "At least 1 `<p>`...`</p>` on any page": int(bool(repo.stats['p_tag'])),
+                    "List (`<ul>` or `<ol>` and `<li>`) or table on any page": int(bool(repo.stats['list_tag'])),
+                    "At least one image on each page": int(bool(repo.images_per_page)),
+                    "The height or width attribute is used on any image": int(bool(repo.images_per_page)), 
+                    "External style sheet, `<style>`...`</style>` section, or inline style (`style=""`) on each page": round(repo.stats['css'] / html_count, 1), 
+                }
+
+        self.expertise_from_dict(rubric, criteria)
 
         return rubric
 
 
-#     def overall_grades(self, owner, rubric_only=False):
-#         # rubric = {}
-#         # for category in owner.getvalue('coursework', owner).classroom.grading_categories:
-#         #     rubric[category] = {category: {"user": {"overall": owner.getvalue(f'overall_{category}',)}}}
-#         # rubric = Rubric({"overall": score, "maxPoints": score}, owner, basic={}, allow_manual_changes=False)
-#         # if rubric_only:
-#         #     return rubric
-#         # owner.rubric = rubric
-#         # return owner.rubri
-#         pass
 
-
-#     def grade_learning_behaviors(self, submission):
-#         submission.rubric['Not Counted']['Learning Behaviors']['auto']['turned in'] = int(submission.turned_in())
-#         submission.rubric['Not Counted']['Learning Behaviors']['auto']['submitted on time'] = int(not submission.late)
-#         if submission.student_materials():
-#             submission.rubric.remove_comment("No work is attached.")
-#         elif self.coursework.is_due():
-#             submission.rubric.mark_zero(user=True)
-#             submission.rubric.comment("No work is attached.")
-#         submission.rubric['Not Counted']['Learning Behaviors']['auto']['is in the class'] = 1
-
-#     # def grade(self, submission):
-#     #     if submission.rubric.get('Not Counted') and submission.rubric.rows('Not Counted'):
-#     #         self.grade_learning_behaviors(submission)
-#     #     self.grader(submission)
-#     #     if "MISSING" in submission.status and submission.coursework.is_due():
-#     #         submission.rubric.blank()
-#     #         # if submission.rubric.get('Not Counted'):
-#     #             # submission.rubric['Not Counted']['Learning Behaviors']['user']['is a good person'] = 5
-            
-#     #     if submission.status == "RESUBMITTED" and submission.rubric.is_complete():
-#     #         if submission.rubric.get('Not Counted') and submission.rubric.rows('Not Counted'):
-#     #             submission.rubric['Not Counted']['Learning Behaviors']['user']['is a good person'] = "_"
-#     #         else:
-#     #             submission.rubric.blank(auto=False)
-        
-#     #     overall = submission.rubric.total_scores()
-#     #     # if submission.assignedGrade is not None and submission.assignedGrade != overall:
-#     #     #     submission.draftGrade = overall
-#     #     submission.rubric.updateTimestamp()
-#     #     return submission.rubric
+    def expertise_from_dict(self, rubric, d):
+        for criteria, score in d.items():
+            maxpoints = 1
+            if type(score) in [tuple, list]:
+                earnedpoints = score[0]
+                maxpoints = score[1]
+            else:
+                earnedpoints = score
+            rubric.criterion(criteria).category('EXPERTISE').score(earnedpoints, maxpoints)
+        return rubric
 
     @runtimer
-    def multipage_website(self, owner, rubric_only=False):
-        """
-        - images on every page that are resized using the height or width html attribute. Be sure the URL does not begin with file:// as that will not display correctly on the live website https://htmlreference.io/element/img/
-
-        ### [Links](https://www.w3schools.com/html/html_links.asp)
-        - at least 1 external link (i.e., to a webpage that is not yours) on each page
-        - index.html and at least 2 other html files with content on them
-        - internal links between index.html and your other pages
-        - External, Internal, and Inline CSS https://www.w3schools.com/css/css_howto.asp
-        - several tags with inline style added
-        - external style sheet with CSS rules
-        - `<style>` section in the head of at least one of the pages
-        ### [CSS selectors] (https://www.w3schools.com/css/css_selectors.asp)
-        - select by `id`, `class` , and `tag` somewhere in the `<style>` tags and/or an external style sheet
-        - all of these tags: `<img>`, `<a>`, `<p>` ,` <html>` , `<body> `, `<head> `,`<title>`, (`<h1>`,` <h2>`, etc)
-        - all of these css attributes: `font-family`, `background-color`, `color`, `font-size`
-        - additional tags and CSS attributes chosen by you from the attached resources above or elsewhere. There should be a variety to get full credit.
-        """
-        if rubric_only:
-            rubric = {
-                'Expertise': {
-                    "Structure": {
-                        "auto": {
-                            "`index.html` exists": 1, 
-                            "External style sheet `.css` file exists": 1, 
-                            "At least 3 `.html` files exist": 1, 
-                            "None of the URLs on the site point to locations on the dev's computer (i.e., don't begin with `file://`)": 1, 
-                            "Each page is accessible via an internal link from another page": 1, 
-                            "At least 1 external link on any page": 1,
-                            "Link to live site submitted": 1,
-                            "Link to repo submitted": 1
-                        }},
-                    "HTML": {
-                        "auto":{
-                            "Exactly 1 opening `<html>` tag on each page": 1, 
-                            "No content after closing `</html>` tag on each page": 1, 
-                            "Exactly 1 `<head>`...`</head>` section on each page": 1, 
-                            "Exactly 1 `<title>`...`</title>` on each page": 1, 
-                            "Exactly 1 `<body>`...`</body>` on each page": 1, 
-                            "At least one heading (`<h1>`...`</h1>`, `<h2>`...`</h2>`, etc.)  on any page": 1, 
-                            "At least 1 `<p>`...`</p>` on any page": 1, 
-                            "List (`<ul>` or `<ol>` and `<li>`) or table on any page": 1, 
-                            "At least one image on each page": 1, 
-                            "The height or width attribute is used on any image": 1, 
-                            "External style sheet, `<style>`...`</style>` section, or inline style (`style=""`) on each page": 1, 
-                        }}, 
-                    "CSS":{
-                        "auto": {
-                            "External style sheet is linked to at least one page": 1, 
-                            "CSS Classes are defined and used on any page": 1, 
-                            "CSS tag/element selectors are defined and used on any page": 1, 
-                            "Inline CSS AND/OR ID selectors are used on any page": 1, 
-                            "CSS attribute background or background-color in any style rule": 1, 
-                            "CSS attribute border is used in any style rule": 1, 
-                            "CSS font attributes are used (font-family, font-size, color, and/or other font properties) in any style rule": 1
-                        }
-                }}}
-            return Rubric(rubric, owner)
-        
-        projectrepo = ProjectRepo(owner)
-        projectrepo.website_init()
-        repo = projectrepo.repo
-        if not repo:
-            return owner.rubric
-        rubric = {
-            'Expertise': {
-                "Structure": {
-                    "auto": {
-                        "`index.html` exists": int(projectrepo.file_exists('index.html')), 
-                        "External style sheet `.css` file exists": int(projectrepo.file_exists('*.html')), 
-                        "At least 3 `.html` files exist": min(1, round(projectrepo.count_filetype('.html')/3, 1)), 
-                        "None of the URLs on the site point to locations on the dev's computer (i.e., don't begin with `file://`)": int(bool(projectrepo.valid_links or projectrepo.valid_images) and not bool(projectrepo.local_links)), 
-                        "Each page is accessible via an internal link from another page": int(bool(projectrepo.valid_links and projectrepo.pages_linked_internally())), 
-                        "At least 1 external link on any page": int(bool(projectrepo.stats['external_link'])),
-                        "Link to live site submitted": int(projectrepo.submitted_link_to_livesite()),
-                        "Link to repo submitted": int(projectrepo.submitted_link_to_repo())
-                    }}}   
-            }
-        if projectrepo.stats['html_count'] > 0:
-            rubric['Expertise']['HTML'] = {
-                "auto":{
-                    "Exactly 1 opening `<html>` tag on each page": round(projectrepo.stats['html_tags'] / projectrepo.stats['html_count'], 1), 
-                    "No content after closing `</html>` tag on each page": round(projectrepo.stats['nojunk'] / projectrepo.stats['html_count'], 1), 
-                    "Exactly 1 `<head>`...`</head>` section on each page": round(projectrepo.stats['head_tag'] / projectrepo.stats['html_count'], 1), 
-                    "Exactly 1 `<title>`...`</title>` on each page": round(projectrepo.stats['title_tag'] / projectrepo.stats['html_count'], 1), 
-                    "Exactly 1 `<body>`...`</body>` on each page": round(projectrepo.stats['body_tag'] / projectrepo.stats['html_count'], 1), 
-                    "At least one heading (`<h1>`...`</h1>`, `<h2>`...`</h2>`, etc.)  on any page": int(bool(projectrepo.stats['heading_tag'])),
-                    "At least 1 `<p>`...`</p>` on any page": int(bool(projectrepo.stats['p_tag'])),
-                    "List (`<ul>` or `<ol>` and `<li>`) or table on any page": int(bool(projectrepo.stats['list_tag'])),
-                    "At least one image on each page": int(bool(projectrepo.images_per_page)),
-                    "The height or width attribute is used on any image": int(bool(projectrepo.images_per_page)), 
-                    "External style sheet, `<style>`...`</style>` section, or inline style (`style=""`) on each page": round(projectrepo.stats['css'] / projectrepo.stats['html_count'], 1), 
-                }} 
-            rubric['Expertise']["CSS"] = {
-                "auto": {
-                    "External style sheet is linked to at least one page": int(bool(projectrepo.stats['css'])), 
-                    "CSS Classes are defined and used on any page": int(bool(projectrepo.stats['css'])), 
-                    "CSS tag/element selectors are defined and used on any page": int(bool(projectrepo.stats['css'])), 
-                    "Inline CSS AND/OR ID selectors are used on any page": int(bool(projectrepo.stats['inline_css'] or projectrepo.stats['pages_with_ids'])), 
-                    "CSS attribute background or background-color in any style rule": int(projectrepo.stats['background_rule']), 
-                    "CSS attribute border is used in any style rule": int(projectrepo.stats['border_rule']), 
-                    "CSS font attributes are used (font-family, font-size, color, and/or other font properties) in any style rule": int(projectrepo.stats['font_rule']), 
+    def website_css(self, rubric):
+        repo = self.repo(rubric)
+        repo.website_init()
+        criteria = {
+                    "External style sheet is linked to at least one page": int(bool(repo.stats['css'])), 
+                    "CSS Classes are defined and used on any page": int(bool(repo.stats['css'])), 
+                    "CSS tag/element selectors are defined and used on any page": int(bool(repo.stats['css'])), 
+                    "Inline CSS AND/OR ID selectors are used on any page": int(bool(repo.stats['inline_css'] or repo.stats['pages_with_ids'])), 
+                    "CSS attribute background or background-color in any style rule": int(repo.stats['background_rule']), 
+                    "CSS attribute border is used in any style rule": int(repo.stats['border_rule']), 
+                    "CSS font attributes are used (font-family, font-size, color, and/or other font properties) in any style rule": int(repo.stats['font_rule']), 
                 }
+        
+        return self.expertise_from_dict(rubric, criteria)
 
-        }
-        owner.rubric.unify(rubric)
-        owner.rubric['statistics'] = projectrepo.stat_string
-        return owner.rubric
+    @runtimer
+    def website_structure(self, rubric):
+        repo = self.repo(rubric)
+        repo.website_init()
+        criteria = {
+                        "`index.html` exists": int(repo.file_exists('index.html')), 
+                        "External style sheet `.css` file exists": int(repo.file_exists('*.html')), 
+                        "At least 3 `.html` files exist": (min(3, round(repo.count_filetype('.html'))), 3), 
+                        "None of the URLs on the site point to locations on the dev's computer (i.e., don't begin with `file://`)": int(bool(repo.valid_links or repo.valid_images) and not bool(repo.local_links)), 
+                        "Each page is accessible via an internal link from another page": int(bool(repo.valid_links and repo.pages_linked_internally())), 
+                        "At least 1 external link on any page": int(bool(repo.stats['external_link']))
+                    }
+        
+        self.expertise_from_dict(rubric, criteria)
+        return rubric
+
+
+
+
 
     @runtimer
     def website_project(self, owner, rubric_only=False):
@@ -817,16 +1047,14 @@ class AutoGrader():
 #         owner.rubric = rubric
 #         return owner.rubric
     
-#     def graded_on_classroom(self, owner, rubric_only=False):
-#         owner.scored_on_classroom = True
-#         owner.force_regrade = True
-#         if type(owner) is Submission:
-#             score = int0(owner.get_score(mark_draft=False, from_cr=True))
-#             max_score = owner.coursework.cr.get('maxPoints')
-#         else:
-#             owner.maxPoints = owner.cr.get('maxPoints')
-#             score = owner.maxPoints
-#             max_score = score
+    # def graded_on_classroom(self, rubric):
+    #     if type(owner) is Submission:
+    #         score = int0(owner.get_score(mark_draft=False, from_cr=True))
+    #         max_score = owner.coursework.cr.get('maxPoints')
+    #     else:
+    #         owner.maxPoints = owner.cr.get('maxPoints')
+    #         score = owner.maxPoints
+    #         max_score = score
             
 #         rubric = {"overall": score, "maxPoints": max_score}
 
@@ -919,860 +1147,389 @@ class AutoGrader():
 #             rubric.comment([])
 
 #         return rubric
-#     @runtimer
-#     def classic_computer_stan(self, owner, rubric_only=False):
-#         if not owner or rubric_only:
-#             rubric = {
-#                 "Product": {
-#                     "Repo": {
-#                         "auto": {
-#                             "link to repo submitted": 1,
-#                             "repo is accessible": 1,
-#                             "link to live site submitted": 1,
-#                             "live site is accessible": 1
-                            
-#                         },
-#                         "user": {
-#                             "demonstrates sophistication or creativity": 1,
-#                             "includes all content required by the instructions": 1,
-#                             "website displays as intended without error": 2
-#                         }
-#                     }
-#                 },
-#                 "Expertise": {
-#                     "Markdown": {
-#                         "auto": {
-#                             "includes an image in the repository": 1,
-#                             "includes 7 types of formatting": 5
-#                         },
-#                         "user": {
-#                             "demonstrates sophistication or creativity": 1
-                            
-#                         }
-#                     }
-#                 }
-#             }
-#             rubric = Rubric(rubric, owner)
-#             if rubric_only:
-#                 return rubric
-#         projectrepo = ProjectRepo(owner)
-#         projectrepo.md_init()
-#         repo = projectrepo.repo
-#         if not repo:
-#             owner.rubric.mark_zero()
-#             return owner.rubric
-#         if projectrepo.is_profile_repo():
-#             owner.rubric.mark_zero()
-#             owner.rubric.comment([])
-#             owner.rubric.comment("Wrong link(s) submitted; double check the submission instructions and resubmit.")
-#             return owner.rubric
-#         rck = owner.rubric['Product']['Repo']['auto']
 
-#         rck["link to repo submitted"] = int(projectrepo.submitted_link_to_repo())
-#         rck["repo is accessible"] = int(validate_target(projectrepo.repolink))
-#         rck["link to live site submitted"] = int(projectrepo.submitted_link_to_livesite())
-#         rck["live site is accessible"] = int(validate_target(projectrepo.livelink))
+    def manual(self, rubric):
+        for criterion in self.problem.criteria_by_sequence():
+            rubric.criterion(criterion.title, criterion.max_points, criterion.sequence)
+            for category in criterion.get_grading_categories():
+                rubric.category(category)
 
-#         mck = owner.rubric['Expertise']['Markdown']["auto"]
-#         mck["includes an image in the repository"] =  int(bool(projectrepo.relative_image_links()))
-#         num_md_used = len(projectrepo.md_elements['elements_used'])-2
-#         mck["includes 7 types of formatting"] = max(0, min(5, num_md_used))
-#         owner.rubric.comment([])
-#         owner.rubric['statistics'] = "Elements used: " + ", ".join(projectrepo.md_elements['elements_used'])
-#         return owner.rubric
+            # overwrite unentered scores with zeros (keeping scores already entered)
+            if not rubric.score():
+                rubric.score(0, criterion.max_points)
+        return rubric
 
-#     def github_account_profile(self, owner, rubric_only=False):
-#         if not owner or rubric_only:
-#             rubric = {
-#                 "Product": {
-#                     "Repo": {
-#                         "auto": {
-#                             "exists and is public": 2,
-#                             "is named correctly": 1,
-#                             "submitted link leads to profile page": 1,
-#                             "link submitted": 3
-#                         },
-#                         "user": {
-#                             "demonstrates sophistication or creativity": 1
-#                         }
-#                     }
-#                 },
-#                 "Expertise": {
-#                     "Markdown": {
-#                         "auto": {
-#                             "includes a link": 1,
-#                             "includes an image": 1,
-#                             "includes 4 other types of formatting": 4
-#                         },
-#                         "user": {
-#                             "demonstrates sophistication or creativity": 1,
-#                             "displays original content": 1
-#                         }
-#                     }
-#                 }
-#             }
-#             rubric = Rubric(rubric, owner)
-#             if rubric_only:
-#                 return rubric
-#         projectrepo = ProjectRepo(owner)
-#         projectrepo.md_init()
-#         repo = projectrepo.repo
-#         if repo:
-#             exists = True
-#         else:
-#             exists = False
-#         rck = owner.rubric['Product']['Repo']['auto']
-#         rck["exists and is public"] = int(exists)*2
-#         rck["is named correctly"] = int(projectrepo.is_profile_repo())
-#         rck["submitted link leads to profile page"] = int(projectrepo.submitted_link_to_profile())
-#         rck["link submitted"] =int(any(projectrepo.urls))*3 
+    def repo(self, rubric):
+        if not self.projectrepo:
+            self.projectrepo = ProjectRepo.get(rubric.submission)
 
-#         mck = owner.rubric['Expertise']['Markdown']["auto"]
-#         mck["includes a link"] = int(len(projectrepo.md_elements['links']) > 0)
-#         mck["includes an image"] = int(len(projectrepo.md_elements['images']) > 0)
-#         num_md_used = len([e for e in projectrepo.md_elements['elements_used'] if e not in ['images', 'links']])
-#         mck["includes 4 other types of formatting"] = min(4, num_md_used)
-#         owner.rubric.comment([])
-#         owner.rubric['statistics'] = "Elements used: " + ", ".join(projectrepo.md_elements['elements_used'])
-#         return owner.rubric
+        rubric.student.set_github_username(self.projectrepo.username)
+        return self.projectrepo
+    
+    def profile_repo_submitted(self, rubric, livesite=False):
+        repo = self.repo(rubric)
+        rubric.criterion('Repo exists and is public').category('PRODUCT').score(int(repo.exists()), 1)
+        rubric.criterion('Link to repo submitted').category('PRODUCT').score(int(repo.exists()), 1)
+        return rubric
+
+    def repo_submitted(self, rubric, livesite=False):
+        repo = self.repo(rubric)
+        rubric.criterion('Repo exists and is public').category('PRODUCT').score(int(repo.exists()), 1)
+        rubric.criterion('Link to repo submitted').category('PRODUCT').score(int(repo.submitted_link_to_repo()), 1)
+        return rubric
+    
+    def website_repo_submitted(self, rubric):
+        rubric = self.repo_submitted(rubric)
+        rubric.criterion('Link to live site submitted').category('PRODUCT').score(int(self.projectrepo.submitted_link_to_livesite()), 1)
+        rubric.criterion("live site is accessible").category("PRODUCT").score(int(validate_target(self.projectrepo.livelink)), 1)
+        return rubric
 
 
-
-# class Rubric(dict):
-#     def __init__(self, input_rubric, owner: Union[Coursework, Submission], basic=None, allow_manual_changes=True):
-#         # Initialize this rubric as the basic, base rubric for all assignments. 
+    
+    @runtimer
+    def classic_computer_stan(self, rubric):
+        repo = self.repo(rubric)
+        repo.md_init()
         
-#         self.allow_manual_changes = allow_manual_changes
-#         if basic is None:
-#             basic = {"Not Counted": {"Learning Behaviors": {"auto": {"turned in": 1, "submitted on time": 1, "is in the class": 1}, "user": {"is a good person": 5}}}}
-#         super().__init__(basic)
-#         # set default score and comment
-#         self['overall'] = 0
-#         self['comments'] = ["Not yet graded"]
+        rubric.criterion('includes a link').category('EXPERTISE').score(int(len(repo.md_elements['links']) > 0), 1)
+        rubric.criterion('includes an image').category('EXPERTISE').score(int(len(repo.md_elements['images']) > 0), 1)
 
-#         # set instance variables used by methods
-#         if type(owner) is Submission:
-#             self.submission = owner
-#             self.coursework = owner.coursework
-#             self.cw_rubric = owner.coursework.rubric
-#         if type(owner) is Coursework:
-#             self.submission = None
-#             self.coursework = owner
-#             self.cw_rubric = self
-#         # bring input (either scored criteria or criteria defined in Obsidian) into this rubric
-        
-#         self.unify(input_rubric)
+        num_md_used = repo.num_md_elements_used()
+        rubric.criterion('includes 7 types of formatting').category('EXPERTISE').score(max(0, num_md_used), 7)
 
-#     def validate_score(self, score):
-#         if int0(score) > int0(self['maxPoints']):
-#             return False
-#         if "Not Counted" in self.keys():
-#             if int0(str(score)[0]) < 5:
-#                 return False
-#         return True
-        
-#     def scores(self):
-#         report = {}
-#         report['overall'] = self['overall']
-#         report['maxPoints'] = self['maxPoints']
-#         for cat in ["Not Counted"] + self.coursework.classroom.grading_categories:
-#             report[cat] = {}
-#             report[cat]['score']= self.get(cat, {}).get('overall', "")
-#             report[cat]['grade']= self.get(cat, {}).get('grade', "")
-#         return report
+        rubric.comment({"Elements used": repo.md_elements_used()}, overwrite=True)        
 
-#     def set_criterion(self, mark, target_criterion, target_categories = [], target_rows = []):
-#         categories = ["Not Counted"] + self.coursework.classroom.grading_categories
-#         if target_categories:
-#             categories = [c for c in categories if c in target_categories]
-
-#         for category in categories:
-#             rows = self.rows(category)
-#             if target_rows:
-#                 rows = [r for r in rows if r in target_rows]
-#             for row in rows:
-#                 for criterion in self[category][row]['auto']:
-#                     if criterion == target_criterion:
-#                         self[category][row]['auto'] = mark
-#                 for criterion in self[category][row]['user']:
-#                     if criterion == target_criterion:
-#                         self[category][row]['user'] = mark
-#         return self
-
-#     def updateTimestamp(self):
-#         tscomment = f"Updated {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}" 
-#         if not self.get('comments'):
-#             self['comments'] = [tscomment]
-#         else:
-#             self['comments'][0] = tscomment
+        return rubric
     
-#     def to_frontmatter(self):   
-#         d = {}
-#         for category in self.coursework.classroom.grading_categories + ["Not Counted"]:
-#             if category not in self.keys():
-#                 continue
-#             # d.setdefault(f"{category}", {})
-#             for r in self.rows(category):
-#                 if not self[category][r].get('user'):
-#                     continue
-#                 # d[category].setdefault(r, {"user": {}})
-#                 for c in self[category][r].get('user', {}).keys():
-#                     d.setdefault(f"{category}:{r}:user", {})
-#                     d[f"{category}:{r}:user"][c] = self[category][r]['user'][c]
-#             # if not d[f"{category}:{r}:user"]:
-#             #     d.pop(f"{category}:{r}:user")
-#         d['comments'] = self['comments']
-#         fd = dict(flatdict.FlatDict(d))
-#         return d
-    
-#     def user_criteria(self, category, row):
-#         return [k for k in self.get(category, {}).get(row, {}).get('user', {}).keys()]
-    
-#     def auto_criteria(self, category, row):
-#         return [k for k in self.get(category, {}).get(row, {}).get('auto', {}).keys()]
+    def more_than_7_formatting_types(self, rubric):
+        repo = self.repo(rubric)
+        num_md_used = repo.num_md_elements_used()
+        rubric.criterion('includes more than 7 types of formatting').category('EXPERTISE').score(int(bool(num_md_used > 7)), 1)
+        rubric.criterion("includes an image in the repository").category('EXPERTISE').score(int(bool(repo.relative_image_links())), 1)
 
-#     def rows(self, category):
-#         if category not in self:
-#             return []
-#         return [k for k in self.get(category, {}).keys() if type(self[category][k]) is dict]
+class Page():
+    targets_filepath = "targets.json"
+    targets = {}
 
-#     def categories(self):
-#         sorted = []
-#         cat = [k for k in self.keys() if type(self[k]) is dict]
-#         for c in ["Not Counted"] + self.coursework.classroom.grading_categories:
-#             if c in cat:
-#                 sorted.append(c)
-#         return sorted
-    
-#     def to_dict(self):
-#         d = {r: self[r] for r in self.keys()}
-#         return d
-#     #chatGPT
-#     def unify(self, source, destination=None, add_criteria=True):
-#         if not source:
-#             self.total_scores()
-#             return self
-#         if destination == None:
-#             destination = self
-#         for key, value in source.items():
-#             if not add_criteria and not destination.get(key):
-#                 continue
-#             if isinstance(value, dict):
-#                 # Recursively merge nested dictionaries
-#                 node = destination.setdefault(key, {})
-#                 self.unify(value, node, add_criteria)
-#             else:
-#                 # Overwrite existing keys or create new ones
-#                 destination[key] = value
-#         if isinstance(destination, Rubric): 
-#             destination.total_scores()
-#             if 'comments' in source.keys() and source['comments']:
-#                 if 'comments' not in destination.keys() or not destination['comments']:
-#                     destination.setdefault('comments', [])
-#                     destination['comments'].append(source['comments'][0])
-#                 else:
-#                     destination['comments'][0] = source['comments'][0]
-#                 for comment in source['comments']:
-#                     destination.comment(comment)
-#         return destination
+    @classmethod
+    @runtimer
+    def load_targets(cls):
+        if cls.targets:
+            return
+        if os.path.exists(cls.targets_filepath):
+            with open(cls.targets_filepath) as c:
+                cls.targets = json.load(c)
 
-#     def yaml(self):
-#         return str(yaml.dump(dict(self), default_flow_style=False))    
+    @classmethod
+    @runtimer
+    def write_targets(cls):
+        with open(cls.targets_filepath, 'w', encoding='utf-8') as c:
+            c.write(json.dumps(cls.targets, indent=4))
 
-#     def overall(self):
-#         if not self.categories():
-#             return self['overall']
-#         score = ""
-#         for category in ["Not Counted"] + self.coursework.classroom.grading_categories:
-#             for row in self.rows(category):
-#                 score += str(int0(self[category][row].get('score', '_')))
-#         self['overall'] = int(score)
-#         return self['overall']
-    
-#     def unify_content_rubric(self, content_rubric=None):
-#         if not self.allow_manual_changes:
-#             return self
-#         if self.submission and not content_rubric:
-#             content_rubric = self.submission.getvalue('content_rubric', "")
-#         if not self.categories():
-#             return self
-#         out = {}
-#         content_rubric = content_rubric.replace("`⟨", "`<").replace("⟩`", ">`")
-#         lines = content_rubric.split("\n")
-#         if "<!--comments-->" in lines:
-#             out['comments'] = []
-#             try:
-#                 comments = lines[lines.index("<!--comments-->")+1:lines.index("<!--/comments-->")]
-#                 for comment in comments:
-#                     if comment.startswith("- "):
-                        
-#                         out['comments'].append(comment[2:].strip())
-#             except ValueError:
-#                 pass
-#         for line in lines:
-#             if line[0:3] != "- [" or line[4:10] != "] <!--":
-#                 continue
-#             checked = bool(line[3].lower() == "x")
-#             keys = line[line.index("<!--")+len("<!--"):line.index("-->")].split(":")
-#             if keys == ["force_regrade"]:
-#                 if checked:
-#                     self.submission.force_regrade = True
-#                 continue
-#             if len(keys) != 3:
-#                 raise MissingData("keys in content rubric are effed")
-#             category = keys[0]
-#             row = keys[1]
-#             kind = keys[2]
-#             criterion = line[line.index("-->")+len("-->"):line.index("---")].strip()
-#             out.setdefault(category, {})
-#             out[category].setdefault(row, {})
-#             out[category][row].setdefault(kind, {})
-#             try:
-#                 if checked:
-#                     out[category][row][kind][criterion] = self.cw_rubric[category][row][kind][criterion]
-#                 else:
-#                     out[category][row][kind][criterion] = self[category][row][kind][criterion]
-#             except KeyError:
-#                 logger.info(f"line not in cw rubric: {line}")
-#         return self.unify(out, add_criteria=False)
+    @classmethod
+    @runtimer
+    def validate_target(cls, target, page=None, proj=None, force=FORCE_VALIDATE_URLS):
+        logger.info("validating " + target)
+        target = target.strip()
+        if page and not proj:
+            proj = page.proj
 
-#     def editable_report(self):
-
-#         criteria_column_width = 10
-#         score_divider = "-" * criteria_column_width
-#         rs = ""
-#         for category in self.coursework.classroom.grading_categories + ["Not Counted"]:
-#             for row in self.rows(category):
-#                 rs += f"## {row} ({category}): {self[category][row].get('grade', '')}  \n"
-#                 for criterion in self.auto_criteria(category, row):
-#                     comment = "<!--{}-->".format(f"{category}:{row}:auto")
-#                     check = " "
-#                     if int0(self[category][row]['auto'][criterion])/int(self.cw_rubric[category][row]['auto'][criterion]) == 1:
-#                         check = "x" 
-#                     rs += f"- [{check}] {comment} {criterion}---*auto-scored* ({self[category][row]['auto'][criterion]}/{self.cw_rubric[category][row]['auto'][criterion]})\n"
-#                 for criterion in self.user_criteria(category, row):
-#                     comment = f"<!--{category}:{row}:user-->"
-#                     check = " "
-#                     if int0(self[category][row]['user'][criterion])/int(self.cw_rubric[category][row]['user'][criterion]) == 1:
-#                         check = "x" 
-#                     rs += f"- [{check}] {comment} {criterion}---({self[category][row]['user'][criterion]}/{self.cw_rubric[category][row]['user'][criterion]})\n"
-#                 rs += "\n\n"
-#         rs = rs.replace("`<", "`⟨").replace(">`", "⟩`")
-#         if not self.categories():
-#             rs += f"Score: {self['overall']}"
-#         if self.submission:
-#             heading = self.submission.coursework.title
-#             student = self.submission.student.lastfirst + "  \n" + self.submission.status
-#             comments = "- " + "  \n- ".join([c for c in self.get('comments', [])])
-
-#             report = "# {}  \n### {}  \n\n- [ ] <!--force_regrade-->REGRADE\n\n  {}  \n{}  \n{}  \n{}".format(
-#                 heading,
-#                 student,
-#                 f"draftGrade: {self.submission.draftGrade}",
-#                 f"assignedGrade: {self.submission.assignedGrade}",
-#                 self.overall_string(force=True),
-#                 rs
-#             )
-#             if comments:
-#                 report += f"\n\n## Comments\n<!--comments-->\n{comments}\n<!--/comments-->"
-#             if self.get('statistics'):
-#                 report += f"\n\n## Statistics\n{self['statistics']}"
-#             # exclude grades repo
-#             student_materials = self.submission.student_materials()
-#             if student_materials:
-#                 attachments_str = "  \n- ".join([str(m) for m in student_materials])
-#                 report += f"\n\n## Work Submitted  \n- {attachments_str}"
-#             report += f"\n\n---\n[Open in Google Classroom]({self.submission.cr['alternateLink']})"
-#             return report
-#         return rs
-
-#     def report(self):
-#         criteria_column_width = 10
-#         score_divider = "-" * criteria_column_width
-#         table_heading = f"|  |  |\n| --- | --- |\n"
-#         rs = ""
-#         for category in self.coursework.classroom.grading_categories + ["Not Counted"]:
-#             for row in self.rows(category):
-#                 rs += f"## {row} ({category}): {self[category][row].get('grade', '')}\n"
-#                 rs += table_heading
-#                 for criterion in self.auto_criteria(category, row):
-#                     score = int0(self[category][row]['auto'][criterion])
-#                     if score == 0:
-#                         score_report = "<span style='color:orange;'>__☐__</span>"
-#                     elif score / self.cw_rubric[category][row]['auto'][criterion] == 1:
-#                         score_report = "<span style='color:green;'>__☑__</span>"
-#                     else:
-#                         score_report = f"<span style='color:orange;'>{score}/{self.cw_rubric[category][row]['auto'][criterion]}</span>"
-#                     rs += f"| {score_report} | {criterion} (*auto-scored*){' ' * (criteria_column_width - len(criterion))} |\n"
-#                 for criterion in self.user_criteria(category, row):
-#                     score = int0(self[category][row]['user'][criterion])
-#                     if score == 0:
-#                         score_report = "<span style='color:orange;'>__☐__</span>"
-#                     elif score / self.cw_rubric[category][row]['user'][criterion] == 1:
-#                         score_report = "<span style='color:green;'>__☑__</span>"
-#                     else:
-#                         score_report = f"<span style='color:orange;'>{score}/{self.cw_rubric[category][row]['auto'][criterion]}</span>"
-#                     rs += f"| {score_report} | {criterion}{' ' * (criteria_column_width - len(criterion))} |\n"
-#                 rs += "\n\n"
-#         if not self.categories():
-#             rs += f"Score: {self['overall']}"
-#         if self.submission:
-#             heading = self.submission.coursework.title
-#             student = self.submission.student.lastfirst
-#             comments = "- " + "  \n- ".join([c for c in self.get('comments', [])])
-#             report = "{}  \n\n{}  \n{}".format(
-#                 f"__[All grades](./)__",
-#                 self.overall_string(),
-#                 rs,
-#             )
-#             if comments:
-#                 report += f"\n\n## Comments\n{comments}"
-#             if self.get('statistics'):
-#                 report += f"\n\n## Statistics\n{self['statistics']}"
-#             # exclude grades repo
-#             student_materials = self.submission.student_materials()
-#             if student_materials:
-#                 attachments_str = "  \n- ".join([str(m) for m in student_materials])
-#                 report += f"\n\n## Work Submitted  \n- {attachments_str}"
-#             report += f"  \n\n---\n[Open in Google Classroom]({self.submission.cr['alternateLink']})"
-#             return report
-#         return rs
-        
-#     def remove_comment(self, c):
-#         if c not in self.keys():
-#             return None
-#         if c in self['comments']:
-#             self['comments'].remove(c)
-#         if c in self['comments']:
-#             return self.remove_comment(c)
-#         return self['comments']
-
-#     def comment(self, c=None):  
-#         if c == []:
-#             self['comments'] = c
-#         if c:
-#             if 'comments' not in self.keys():
-#                 self['comments'] = [c]
-#             elif c.lower().removesuffix(".") not in [com.removesuffix(".").lower() for com in self['comments']]:
-#                 self['comments'].append(c)
-#             else:
-#                 pass
-#         return self.get('comments')
-
-#     def total_scores_coursework(self):
-#         scores = ""
-#         first = True
-#         if not self.categories():
-#             self['maxPoints'] = self['overall']
-#             return self['overall']
-#         for category in ["Not Counted"] + self.coursework.classroom.grading_categories:
-#             category_scores = []
-
-#             # skip categories not in rubric
-#             if not self.get(category):
-#                 continue
-
-#             rows = self.rows(category)
-#             # if there are no rows, then the rubric is on classroom or it is a simple category grade
-#             if not rows:
-#                 score = self[category].get('score', 8)
-#                 category_scores.append(score)
-
-#             for row in rows:
-#                 # total scores for all criteria in row
-#                 score = 0                
-#                 for criterion in self.auto_criteria(category, row):
-#                     score += int0(self[category][row]['auto'][criterion])
-#                 for criterion in self.user_criteria(category, row):
-#                     score += int0(self[category][row]['user'][criterion])   
-#                 self[category][row]['maxScore'] = score        
-
-
-#             self[category]['maxScore'] = self[category].get('score', 8)
-#             scores += str(self[category]['maxScore'])
-
-#         self['overall'] = int0(scores)
-#         self['maxPoints'] = int0(scores)
-#         return self['overall']
-    
-#     def total_scores(self):
-#         if not self.submission:
-#             return self.total_scores_coursework()
-#         scores = ""
-#         first = True
-#         if not self.categories():
-#             return self['overall']
-#         for category in ["Not Counted"] + self.coursework.classroom.grading_categories:
-#             category_scores = []
-#             rows = self.rows(category)
-#             if not self.get(category):
-#                 continue
-#             if not rows:
-#                 score = self[category].get('score', 0)
-#                 category_scores.append(score)
-#             for row in rows:
-#                 score = 0                
-#                 for criterion in self.auto_criteria(category, row):
-#                     score += int0(self[category][row]['auto'][criterion])
-#                 for criterion in self.user_criteria(category, row):
-#                     score += int0(self[category][row]['user'][criterion])   
-
-#                 self[category][row]['score'] = score
-#                 self[category][row]['score_8'] = round(8*(score/self[category][row]['maxScore']))                    
-#                 self[category][row]['grade'] = lettergrade([int0(self[category][row]['score']), self[category][row]['maxScore']])
-#                     # self[category][row]['grade'] = "Not yet graded"
-#                 category_scores.append(self[category][row]['score_8'])
-#             self[category]['score'] = bool_avg(category_scores)
-#             self[category]['grade'] = lettergrade((self[category]['score'], 8))
-#             scores += str(self[category]['score'])
-
-#         self['overall'] = int0(scores)
-#         self['maxPoints'] = int0(self.cw_rubric['overall'])
-#         return self['overall']
-
-#     def overall_string(self, cat=None, force=False):
-#         if cat is None:
-#             categories = [c for c in self.categories() if c != "Not Counted"]
-#         else:
-#             categories = [cat]
-#         if not categories:
-#             return ""
-#         # o_s = f"## {self.coursework.title}  \n"
-#         o_s = ""
-#         if force or self.is_complete():
-#             o_s += "| Grade | Category |  \n| --- | --- |  \n"
-#             for category in categories:
-#                 o_s += f"| {self[category]['grade']} | __{category}__ |  \n"
-#                     # o_s += f"\n__{category}__ (overall): {self[category]['grade']}  "
-#         else:
-#             o_s += "*Not yet graded*"
-#         o_s.removeprefix("\n")
-#         return o_s
-
-#     def mark_all(self, mark, user=False, auto=True):
-#         if mark == 0:
-#             categories = self.coursework.classroom.grading_categories
-#         else:
-#             categories = ["Not Counted"] + self.coursework.classroom.grading_categories
-#         for category in categories:
-#             for row in self.rows(category):
-#                 if auto:
-#                     for criterion in self.auto_criteria(category, row):
-#                         self[category][row]['auto'][criterion] = mark
-#                 if user:
-#                     for criterion in self.user_criteria(category, row):
-#                         self[category][row]['user'][criterion] = mark
-#         self.total_scores()
-#         return self
-
-#     def mark_zero(self, user=False, auto=True):
-#         return self.mark_all(0, user, auto)
-    
-#     def blank(self, user=True, auto=True):
-#         return self.mark_all("_", user, auto)
-    
-#     def is_complete(self):
-#         try:
-#             if not int0(self['Not Counted']['Learning Behaviors']['user']['is a good person']):
-#                 return False
-            
-#         except KeyError:
-#             for category in ["Not Counted"] + self.coursework.classroom.grading_categories:
-#                 for row in self.rows(category):
-#                     for criterion in self.auto_criteria(category, row):
-#                         if type(self[category][row]['auto'][criterion]) is str:
-#                             return False
-#                     for criterion in self.user_criteria(category, row):
-#                         if type(self[category][row]['user'][criterion]) is str:
-#                             return False
-#         return True
-    
-
-
-# # class Page:
-# #     targets_filepath = "targets.json"
-# #     targets = {}
-
-# #     @classmethod
-# #     @runtimer
-# #     def load_targets(cls):
-# #         if cls.targets:
-# #             return
-# #         if os.path.exists(cls.targets_filepath):
-# #             with open(cls.targets_filepath) as c:
-# #                 cls.targets = json.load(c)
-
-# #     @classmethod
-# #     @runtimer
-# #     def write_targets(cls):
-# #         with open(cls.targets_filepath, 'w', encoding='utf-8') as c:
-# #             c.write(json.dumps(cls.targets, indent=4))
-
-# #     @classmethod
-# #     @runtimer
-# #     def validate_target(cls, target, page=None, proj=None, force=FORCE_VALIDATE_URLS):
-# #         logger.info("validating " + target)
-# #         target = target.strip()
-# #         if page and not proj:
-# #             proj = page.proj
-
-# #         r = None
-# #         # link to nowhere
-# #         if not target or target.startswith("#"):
-# #             return r
-# #         #relative link to home folder
-# #         if target == "/":
-# #             r = "relative"
+        r = None
+        # link to nowhere
+        if not target or target.startswith("#"):
+            return r
+        #relative link to home folder
+        if target == "/":
+            r = "relative"
         
 
             
-# #         # local link
-# #         elif "file://" in target:
-# #             r = "local"
-# #         elif proj and proj.file_exists(target):
-# #             r = "relative"
-# #         # url already been validated
-# #         elif not force and cls.targets.get(target) != None:
-# #             r = cls.targets[target]
-# #         else:
-# #             r = request_url(target)                    
-# #             if r == 404:
-# #                 r = False
-# #             elif type(r) is requests.models.Response:
-# #                 if r.status_code == 404:
-# #                     r = False
-# #                 elif target.startswith("http://") or target.startswith("https://"):
-# #                     r = "external"
-# #                 else:
-# #                     r = True
-# #             else:
-# #                 if input("Check manually. Is it valid? (y/n) ").lower() in ["y", "yes"]:
-# #                     if target.startswith("http://") or target.startswith("https://"):
-# #                         r = "external"
-# #                     else:
-# #                         r = True
-# #                 else:
-# #                     r = False
+        # local link
+        elif "file://" in target:
+            r = "local"
+        elif proj and proj.file_exists(target):
+            r = "relative"
+        # url already been validated
+        elif not force and cls.targets.get(target) != None:
+            r = cls.targets[target]
+        else:
+            r = request_url(target)                    
+            if r == 404:
+                r = False
+            elif type(r) is requests.models.Response:
+                if r.status_code == 404:
+                    r = False
+                elif target.startswith("http://") or target.startswith("https://"):
+                    r = "external"
+                else:
+                    r = True
+            else:
+                if type(r) is requests.exceptions.InvalidURL:
+                    r = False
+                # elif input("Check manually. Is it valid? (y/n) ").lower() in ["y", "yes"]:
+                if target.startswith("http://") or target.startswith("https://"):
+                    r = "external"
+                else:
+                    r = False
+                # else:
+                #     r = False
                     
 
-# #         if target not in cls.targets or cls.targets[target] != r:
-# #             cls.targets[target] = r
-# #         # if proj:
-# #         #     if target not in proj.targets:
-# #         #         proj.targets.append(target)
+        if target not in cls.targets or cls.targets[target] != r:
+            cls.targets[target] = r
+        # if proj:
+        #     if target not in proj.targets:
+        #         proj.targets.append(target)
 
-# #         return r
+        return r
 
-# #     def __init__(self, page, proj):
-# #         self.page = page
-# #         self.proj = proj
-# #         self.soup = self.page['soup']
-# #         self.html_tags = 0
-# #         self.nojunk = 0
-# #         self.head_tag = 0
-# #         self.body_tag = 0
-# #         self.title_tag = 0
-# #         self.heading_tag = 0
-# #         self.p_tag = 0
-# #         self.list_tag = 0
-# #         self.comment_tag = 0
-# #         self.inline = 0
-# #         self.style_tag = 0
-# #         self.external_link = 0
-# #         self.div_tag = 0
-# #         self.linked_sheets = []
-# #         self.external_sheet = 0
-# #         self.inline_style_rules = []
-# #         self.classes_used = []
-# #         self.ids_used = []
-# #         self.internal_style_rules = []
-# #         self.all_tags = []
-# #         self.bootstrap = 0
-# #         self.script  = 0
-# #         self.targets = []
-# #         self.image_targets = []
-# #         self.valid_links = []
-# #         self.broken_links = []
-# #         self.local_links = []
-# #         self.external_links = []
-# #         self.relative_links = []
-# #         self.valid_images = []
-# #         self.broken_images = []
-# #         self.possibly_broken_targets = []
-# #         self.js_all = ""
-# #         self.find_tags()
-# #         self.find_images()
-# #         self.find_links()
-# #         self.validate_targets()
-# #         self.html_stats()
-# #         self.css_stats()
-# #         self.js_stats()
+    def __init__(self, page, proj):
+        self.page = page
+        self.proj = proj
+        self.soup = self.page['soup']
+        self.html_tags = 0
+        self.nojunk = 0
+        self.head_tag = 0
+        self.body_tag = 0
+        self.title_tag = 0
+        self.heading_tag = 0
+        self.p_tag = 0
+        self.list_tag = 0
+        self.comment_tag = 0
+        self.inline = 0
+        self.style_tag = 0
+        self.external_link = 0
+        self.div_tag = 0
+        self.linked_sheets = []
+        self.external_sheet = 0
+        self.inline_style_rules = []
+        self.classes_used = []
+        self.ids_used = []
+        self.internal_style_rules = []
+        self.all_tags = []
+        self.bootstrap = 0
+        self.script  = 0
+        self.targets = []
+        self.image_targets = []
+        self.valid_links = []
+        self.broken_links = []
+        self.local_links = []
+        self.external_links = []
+        self.relative_links = []
+        self.valid_images = []
+        self.broken_images = []
+        self.possibly_broken_targets = []
+        self.js_all = ""
+        self.find_tags()
+        self.find_images()
+        self.find_links()
+        self.validate_targets()
+        self.html_stats()
+        self.css_stats()
+        self.js_stats()
 
-# #     @runtimer
-# #     def js_stats(self):
-# #         scripts = self.soup.find_all('script')
-# #         if len(scripts) > 0:
-# #             self.script = 1
-# #         for script in scripts:
-# #             self.js_all += "\n" + "\n".join(script.contents)
+    @runtimer
+    def js_stats(self):
+        scripts = self.soup.find_all('script')
+        if len(scripts) > 0:
+            self.script = 1
+        for script in scripts:
+            self.js_all += "\n" + "\n".join(script.contents)
 
-# #     @runtimer
-# #     def find_tags(self):
-# #         logger.info("finding tags")
-# #         for tag in self.page['soup'].find_all():
-# #             self.all_tags.append(str(tag.name))
+    @runtimer
+    def find_tags(self):
+        logger.info("finding tags")
+        for tag in self.page['soup'].find_all():
+            self.all_tags.append(str(tag.name))
 
-# #     @runtimer
-# #     def find_images(self):
-# #         self.images = self.soup.find_all('img')
-# #         self.proj.num_images += len(self.images)
-# #         for img in self.images:
-# #             target = img.get('src')
-# #             if target:
-# #                 self.image_targets.append(target)
-# #             try:
-# #                 h = img.height
-# #                 self.proj.heightwidth = True
-# #             except KeyError:
-# #                 try:
-# #                     w = img.width
-# #                     self.proj.heightwidth = True
-# #                 except KeyError:
-# #                     pass
-# #     @runtimer        
-# #     def find_links(self):
+    @runtimer
+    def find_images(self):
+        self.images = self.soup.find_all('img')
+        self.proj.num_images += len(self.images)
+        for img in self.images:
+            target = img.get('src')
+            if target:
+                self.image_targets.append(target)
+            try:
+                h = img.height
+                self.proj.heightwidth = True
+            except KeyError:
+                try:
+                    w = img.width
+                    self.proj.heightwidth = True
+                except KeyError:
+                    pass
+    @runtimer        
+    def find_links(self):
 
-# #         links = self.page['soup'].find_all('a')
+        links = self.page['soup'].find_all('a')
 
-# #         for link in links:
-# #             target = link.get('href')
-# #             if target:
-# #                 self.targets.append(target)
+        for link in links:
+            target = link.get('href')
+            if target:
+                self.targets.append(target)
             
 
 
-# #     @runtimer
-# #     def validate_targets(self):
-# #         self.targets = list(set(self.targets))
-# #         self.image_targets = list(set(self.image_targets))
-# #         for target in self.targets:
-# #             validity = Page.validate_target(target, self)
-# #             # 18 At least 1 external link is included
-# #             if validity == False and target not in self.broken_links:
-# #                 self.broken_links.append(target)
-# #             elif validity == True and target not in self.valid_links:
-# #                 self.valid_links.append(target)
-# #             elif validity == "local" and target not in self.local_links:
-# #                 self.local_links.append(target)
-# #             elif validity == "relative" and target not in self.relative_links:
-# #                 self.relative_links.append(target)
-# #             elif validity == "external" and target not in self.external_links:
-# #                 self.external_links.append(target)
-# #                 self.external_link = 1
-# #             else:
-# #                 if target not in self.possibly_broken_targets:
-# #                     self.possibly_broken_targets.append(target)
+    @runtimer
+    def validate_targets(self):
+        self.targets = list(set(self.targets))
+        self.image_targets = list(set(self.image_targets))
+        for target in self.targets:
+            validity = Page.validate_target(target, self)
+            # 18 At least 1 external link is included
+            if validity == False and target not in self.broken_links:
+                self.broken_links.append(target)
+            elif validity == True and target not in self.valid_links:
+                self.valid_links.append(target)
+            elif validity == "local" and target not in self.local_links:
+                self.local_links.append(target)
+            elif validity == "relative" and target not in self.relative_links:
+                self.relative_links.append(target)
+            elif validity == "external" and target not in self.external_links:
+                self.external_links.append(target)
+                self.external_link = 1
+            else:
+                if target not in self.possibly_broken_targets:
+                    self.possibly_broken_targets.append(target)
 
-# #         for target in self.image_targets:
-# #             validity = Page.validate_target(target, self)
-# #             if validity in [True, "relative", "external"] and target not in self.valid_images:
-# #                 self.valid_images.append(target)
-# #             elif validity in [False, "local"] and target not in self.broken_images:
-# #                 self.broken_images.append(target)
-# #             else:
-# #                 if target not in self.possibly_broken_targets:
-# #                     self.possibly_broken_targets.append(target)
+        for target in self.image_targets:
+            validity = Page.validate_target(target, self)
+            if validity in [True, "relative", "external"] and target not in self.valid_images:
+                self.valid_images.append(target)
+            elif validity in [False, "local"] and target not in self.broken_images:
+                self.broken_images.append(target)
+            else:
+                if target not in self.possibly_broken_targets:
+                    self.possibly_broken_targets.append(target)
 
-# #     @runtimer
-# #     def html_stats(self):
-# #         # 6 Exactly 1 opening <html> tag
-# #         if len(self.soup.find_all('html')) == 1:
-# #             self.html_tags = 1
-# #         if len(self.soup.find_all('script')) > 0:
-# #             self.script = 1
-# #         # 7 No content after closing </html> tag
-# #         f = Path(self.page['filename']).read_text()
-# #         if f.replace("\n", "").strip()[-len("</html>"):] == "</html>":
-# #                 self.nojunk = 1
-# #         # 8 Exactly 1 <head>...</head> section
-# #         if len(self.soup.find_all('head')) == 1:
-# #             self.head_tag = 1
-# #         # 9 Exactly 1 <title>...</title>
-# #         if len(self.soup.find_all('title')) == 1:
-# #             self.title_tag = 1
-# #         # 10 Exactly 1 <body>...</body>
-# #         if len(self.soup.find_all('body')) == 1:
-# #             self.body_tag = 1
-# #         # 11 At least one heading (<h1>...</h1>, <h2>...</h2>, etc.)
-# #         headings = ["h1", "h2", "h3", "h4", "h5", "h6"]
-# #         for h in headings:
-# #             if len(self.soup.find_all(h)) > 0:
-# #                 self.heading_tag = 1
-# #                 break
-# #         # 12 At least 1 <p>...</p>
-# #         if len(self.soup.find_all('p')) > 0:
-# #             self.p_tag = 1
-# #         # 13 List (<ul> or <ol> and <li>) or table
-# #         lists = ["ul", "ol", "table"]
-# #         for l in lists:
-# #             if len(self.soup.find_all(l)) > 0:
-# #                 self.list_tag = 1
-# #                 break
-# #         # 14 Comments (<!-- this is a comment -->)
-# #         comments = self.soup.findAll(text=lambda text:isinstance(text, Comment))
-# #         if len(comments) > 0:
-# #             self.comment_tag = 1
-# #         # 30 At least one <div>...</div>
-# #         divs = self.soup.find_all('div')
-# #         if len(divs) > 0:
-# #             for tag in divs:
-# #                 if 'style' in tag.attrs or 'class' in tag.attrs or 'id' in tag.attrs:
-# #                     self.div_tag = 1
-# #                     break
+    @runtimer
+    def html_stats(self):
+        # 6 Exactly 1 opening <html> tag
+        if len(self.soup.find_all('html')) == 1:
+            self.html_tags = 1
+        if len(self.soup.find_all('script')) > 0:
+            self.script = 1
+        # 7 No content after closing </html> tag
+        f = Path(self.page['filename']).read_text()
+        if f.replace("\n", "").strip()[-len("</html>"):] == "</html>":
+                self.nojunk = 1
+        # 8 Exactly 1 <head>...</head> section
+        if len(self.soup.find_all('head')) == 1:
+            self.head_tag = 1
+        # 9 Exactly 1 <title>...</title>
+        if len(self.soup.find_all('title')) == 1:
+            self.title_tag = 1
+        # 10 Exactly 1 <body>...</body>
+        if len(self.soup.find_all('body')) == 1:
+            self.body_tag = 1
+        # 11 At least one heading (<h1>...</h1>, <h2>...</h2>, etc.)
+        headings = ["h1", "h2", "h3", "h4", "h5", "h6"]
+        for h in headings:
+            if len(self.soup.find_all(h)) > 0:
+                self.heading_tag = 1
+                break
+        # 12 At least 1 <p>...</p>
+        if len(self.soup.find_all('p')) > 0:
+            self.p_tag = 1
+        # 13 List (<ul> or <ol> and <li>) or table
+        lists = ["ul", "ol", "table"]
+        for l in lists:
+            if len(self.soup.find_all(l)) > 0:
+                self.list_tag = 1
+                break
+        # 14 Comments (<!-- this is a comment -->)
+        comments = self.soup.findAll(text=lambda text:isinstance(text, Comment))
+        if len(comments) > 0:
+            self.comment_tag = 1
+        # 30 At least one <div>...</div>
+        divs = self.soup.find_all('div')
+        if len(divs) > 0:
+            for tag in divs:
+                if 'style' in tag.attrs or 'class' in tag.attrs or 'id' in tag.attrs:
+                    self.div_tag = 1
+                    break
 
-# #     @runtimer
-# #     def css_stats(self):
-# #         # CSS
-# #         # 15 External style sheet, <style>...</style> section, or inline style (style="")
-# #         for tag in self.soup():
-# #             if 'style' in tag.attrs:
-# #                 self.inline = 1
-# #                 self.inline_style_rules.append(tag.get('style'))
-# #             if 'class' in tag.attrs:
-# #                 for c in tag.get('class', []):
-# #                     self.classes_used.append(c)
-# #             if 'id' in tag.attrs:
-# #                 self.ids_used.append(id)
-# #         style_sections = self.soup.find_all('style')
-# #         if len(style_sections) > 0:
-# #             self.style_tag = 1
-# #             for s in style_sections:
-# #                 self.internal_style_rules.append(s.get_text())
-# #         self.linked_sheets = self.soup.find_all('link')
-# #         if len(self.linked_sheets) > 0:
-# #             for l in self.linked_sheets:
-# #                 for c in self.proj.filelist['.css']:
-# #                     if c in l.get('href', ""):
-# #                         self.external_sheet = 1
-# #                 if "bootstrap" in l.get("href", ""):
-# #                     self.bootstrap = 1
+    @runtimer
+    def css_stats(self):
+        # CSS
+        # 15 External style sheet, <style>...</style> section, or inline style (style="")
+        for tag in self.soup():
+            if 'style' in tag.attrs:
+                self.inline = 1
+                self.inline_style_rules.append(tag.get('style'))
+            if 'class' in tag.attrs:
+                for c in tag.get('class', []):
+                    self.classes_used.append(c)
+            if 'id' in tag.attrs:
+                self.ids_used.append(tag.get('id'))
+        style_sections = self.soup.find_all('style')
+        if len(style_sections) > 0:
+            self.style_tag = 1
+            for s in style_sections:
+                self.internal_style_rules.append(s.get_text())
+        self.linked_sheets = self.soup.find_all('link')
+        if len(self.linked_sheets) > 0:
+            for l in self.linked_sheets:
+                for c in self.proj.filelist['.css']:
+                    if c in l.get('href', ""):
+                        self.external_sheet = 1
+                if "bootstrap" in l.get("href", ""):
+                    self.bootstrap = 1
 
 class ProjectRepo():
+    register = {}
+
+    @classmethod
+    def get(cls, submission):
+        r = cls.register.get(submission.id)
+        if r and r.timestamp > datetime.datetime.now() - datetime.timedelta(minutes=30):
+            return cls.register[submission.id]
+        return cls(submission)
+
+    STUDENTWORK_DIR = 'studentwork'
     @runtimer
     def __init__(self, submission, force_links=False):
         self.submission = submission
-        self.repo_path = os.path.join(f"{STUDENTWORK_DIR}/{submission.coursework.filename}", submission.filename)
-        self.urls = [m.url for m in submission.materials_objects]
+        self.coursework_foldername = submission.coursework.filename()
+        self.submission_foldername = submission.filename()
+        self.coursework_path = self.rename_folder(self.coursework_foldername, self.STUDENTWORK_DIR)
+        self.repo_path = self.rename_folder(self.submission_foldername, self.coursework_path, False)
+        self.urls = submission.attachment_urls()
         self.parse_github_urls(force_links=force_links)
         self.repo = self.update_repo()
         self.filelist = self.list_files()  
         self.js_all = ""
+        self.register[submission.id] = self
+        self.stats = {}
+        self.timestamp = datetime.datetime.now()
 
+    def md_elements_used(self, excluded_elements=[]):
+        return [e for e in self.md_elements['elements_used'] if e not in excluded_elements]
+
+    def num_md_elements_used(self, excluded_elements=[]):
+        return len(self.md_elements_used(excluded_elements))
+
+    def repo_exists(self):
+        if self.repo:
+            return True
+        return False
+
+    def rename_folder(self, new_foldername, parent_folder, create=True):
+        folder_id = new_foldername.split("---")[-1]
+        for folder in os.walk(parent_folder):
+            if folder[0].endswith(folder_id):
+                os.rename(folder[0], os.path.join(parent_folder, new_foldername))
+                return os.path.join(parent_folder, new_foldername)
+        if create:
+            os.mkdir(os.path.join(parent_folder, new_foldername))
+        return os.path.join(parent_folder, new_foldername)
 
     def md_init(self):
         self.md_elements = self.find_md_elements()
-        
+ 
     def website_init(self):
+        Page.load_targets()
         self.expertise_overall = 0
         self.scores = []
         self.pages = []
@@ -1803,11 +1560,14 @@ class ProjectRepo():
         self.parse_css()
         self.parse_js()
         self.stats = self.site_stats()
+        Page.write_targets()
 
     @runtimer
     def make_pages(self):
         Page.load_targets()
         if not self.filelist['htmlsoup']:
+            self.images_per_page = 0
+            self.broken_links_percentage = 0
             return
         for page in self.filelist['htmlsoup']: 
             logger.info(f"making page object for {page['filename']}")
@@ -1851,24 +1611,35 @@ class ProjectRepo():
                 self.classes_used.append(c)
             for i in page.ids_used:
                 self.ids_used.append(i)
+            
         for rule in self.style_rules:
+            r = None
+            if "{" not in rule:
+                rule = ""
+                continue
             if "@" in rule:
                 rule = rule[rule.index("{")+1:]
+                continue
             if "." in rule:
                 r = rule[rule.index(".")+1:]
-                if "{" in r:
+                try:
                     self.classes_defined.append(r[:r.index("{")].strip())
-            elif "#" in rule:
+                except ValueError:
+                    pass
+                continue
+            if "#" in rule:
                 r = rule[rule.index("#")+1:]
-                if "{" in r:
+                try:
                     self.ids_defined.append(r[:r.index("{")].strip())
-            else:
-                if "{" in rule:
-                    self.tag_selectors.append(rule[:rule.index("{")])
+                except ValueError:
+                    pass
+                continue
+            self.tag_selectors.append(rule[:rule.index("{")])
+
         for r in self.inline_style_rules:
             new_r = r.replace('\n', "")
             r = new_r.strip()
-        self.classes_used = set(self.classes_used)
+        self.classes_used = list(set(self.classes_used))
 
 
     @runtimer
@@ -1893,15 +1664,18 @@ class ProjectRepo():
             'strong_emphasis': [],
             'horizontal_rules': [],
             'lists': [],
+            'numbered_lists': [],
             'footnotes': [],
             'youtube_videos': [],
             'blockquotes': [],
-            'emoji': []
+            'emoji': [],
+            'tables': []
         }
 
         for file in filelist:
             with open(file, 'r') as f:
                 content = f.read()
+                element_contents['tables'].extend(re.findall(r'-{3,}\s*\|\s*-{3,}', content, flags=re.MULTILINE))
                 element_contents['headers'].extend(re.findall(r'^#+\s(.*)', content, flags=re.MULTILINE))
                 element_contents['links'].extend(re.findall(r'\[((?!\!).)*\]\((.*)\)', content))
                 element_contents['images'].extend(re.findall(r'!\[.*\]\((.*)\)', content))
@@ -1913,7 +1687,9 @@ class ProjectRepo():
                 element_contents['emphasis'].extend(re.findall(r'_(.*)_', content))
                 element_contents['strong_emphasis'].extend(re.findall(r'__(.*)__', content))
                 element_contents['horizontal_rules'].extend(re.findall(r'---\n', content))
+                element_contents['horizontal_rules'].extend(re.findall(r'\*\*\*(.*)\n', content))
                 element_contents['lists'].extend(re.findall(r'^[\*\-\+]\s(.*)', content, flags=re.MULTILINE))
+                element_contents['numbered_lists'].extend(re.findall(r'^\d+\.\s(.*)', content, flags=re.MULTILINE))  # Pattern for numbered lists
                 element_contents['footnotes'].extend(re.findall(r"\[\^([^\]]+)\]:\s+([^\n]+)", content, flags=re.MULTILINE))
                 element_contents['youtube_videos'].extend(re.findall(r'(?:<a[^>]*?href=[\'"]|!?\[.*?\]\()https?://(?:www\.)?youtu(?:be\.com/watch\?v=|\.be/)([\w\-]+)(?:&\S+)?(?:[\'"][^>]*?>.*?</a>|\))', content, flags=re.MULTILINE))
                 element_contents['blockquotes'].extend(re.findall(r'^> \S.*', content, flags=re.MULTILINE))
@@ -1946,6 +1722,8 @@ class ProjectRepo():
 
     @runtimer
     def site_stats(self):
+        if self.stats:
+            return self.stats
         stats = {}
         stats['html_tags'] = 0
         stats['nojunk'] = 0
@@ -1977,9 +1755,11 @@ class ProjectRepo():
         self.relative_links = []
         self.valid_images = []
         self.broken_images = []
+        self.css_ids = []
         
         if self.count_filetype('.html') > 0:
             for page in self.pages:
+                self.css_ids += page.ids_used
                 stats['html_tags'] += page.html_tags
                 stats['nojunk'] += page.nojunk
                 stats['head_tag'] += page.head_tag
@@ -2036,16 +1816,39 @@ class ProjectRepo():
         stat.append(f"- inline style: {self.inline_style_rules}")
         stat.append(f"- classes used: {self.classes_used}")
         stat.append(f"- classes defined: {self.classes_defined}")
-        stat.append(f"- ids: {[i for i in list(set(self.ids_used)) if i]}")
+        stat.append(f"- css_ids: {[i for i in list(set(self.css_ids)) if i]}")
         stat.append(f"- {self.num_images} valid images: {self.valid_images}")
         stat.append(f"- Broken images: {self.broken_images}")
         stat.append(f"- {len(self.filelist['.html'])} HTML files: {self.filelist['.html_relative']}")
         stat.append(f"- HTMl tags used: {list(set(self.all_tags))}")
         for a, b in {"Valid links": self.valid_links, "Relative targets": self.relative_links, "Local targets": self.local_links, "Broken links": self.broken_links, "Other targets (may or may not be broken)": self.possibly_broken_targets}.items():
             stat.append(f"- {a}: {b}")
+        self.stats = stats
         self.stat_string = "  \n" + "  \n".join(stat)
         return stats
 
+    def html_stat_dict(self):
+        stat = {"Repository": f"[{self.reponame}]({self.repolink})",
+        "Live site": f"[{self.livelink}]({self.livelink})",
+        f"{len(self.filelist['.css'])} CSS files": self.filelist['.css_relative'],
+        "style rules": self.style_rules,
+        "inline style": self.inline_style_rules,
+        "classes used": self.classes_used,
+        "classes defined": self.classes_defined,
+        "css ids": ", ".join(set([i for i in self.css_ids if i])),
+        f"{self.num_images} valid images": self.valid_images,
+        "Broken images": self.broken_images,
+        f"{len(self.filelist['.html'])} HTML files": self.filelist['.html_relative'],
+        "HTML tags used": list(set(self.all_tags)),
+        "Valid links": self.valid_links, 
+        "Relative targets": self.relative_links, 
+        "Local targets": self.local_links, 
+        "Broken links": self.broken_links, 
+        "Other targets (may or may not be broken)": self.possibly_broken_targets
+        }
+
+        return stat
+    
     def pages_linked_internally(self):
         num_html = self.count_filetype('.html')
         if not num_html:
@@ -2174,6 +1977,8 @@ class ProjectRepo():
 
         for url in urls:
             if "github.com" in url:
+                if 'github.com' not in url.split("/"):
+                    continue
                 if "?" in url:
                     repo_urls.append(url[:url.index("?")])
                 else:

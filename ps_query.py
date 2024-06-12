@@ -155,7 +155,7 @@ def remove_dupes(l):
 class PSQuery(Query):
 
     @classmethod
-    def list_bell_schedules(cls, schools, date=None, pull=True):
+    def list_bell_schedules(cls, schools, date=None, pull=False):
         if not pull:
             return cls.pull_bs_from_json()
         section_events = {}
@@ -185,9 +185,13 @@ class PSQuery(Query):
                     logger.info(day['date_value'])
                     
                     meetings = cls.list_section_events(schools, pull=False, schedule=True)
-                    for termid, meeting in meetings[str(schoolid)][day['bell_schedule_id']].items():
+                    try:
+                        school_meetings = meetings[schoolid]
+                    except KeyError:
+                        school_meetings = meetings[str(schoolid)]
+                    for termid, meeting in school_meetings[day['bell_schedule_id']].items():
                         for meet in meeting:
-                            schedules
+                            # schedules
                             schedules[schoolid][day['bell_schedule_id']].setdefault(meet['section_meeting'], {})
                             schedules[schoolid][day['bell_schedule_id']][meet['section_meeting']].setdefault(meet['period_abbreviation'], ())
                             schedules[schoolid][day['bell_schedule_id']][meet['section_meeting']][meet['period_abbreviation']] = (meet['start_time'], meet['end_time'])
@@ -203,7 +207,7 @@ class PSQuery(Query):
         return (schedules, day_schedules)
 
     @classmethod
-    def list_section_events(cls, schools, date=None, pull=True, schedule=False):
+    def list_section_events(cls, schools, date=None, pull=False, schedule=False):
         if not pull:
             return cls.pull_from_json(schedule)
         section_events = {}

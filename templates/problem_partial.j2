@@ -1,4 +1,5 @@
-<h2><a href="{{ url_for('problem_page', foldername=problem.foldername) }}">{{ problem.slug }}</a></h2>
+<h1>{{ problem.get_title() }}</h1>
+<a class="btn btn-sm btn-warning" href="{{ url_for('create_or_edit_problem', problem_id=problem.id) }}">Edit </a>
 <table class="table table-sm table-hover" id="problem_table_{{ problem.id }}" border="1">
     <thead>
         <tr>
@@ -15,42 +16,42 @@
     <tbody>
         {% for student in all_students %}
         {% set submission = student.get_submission_for_problem(problem) %}
-        <div class="student-{{ student.id }}" >
-            {% if submission %}
-            {% if submission.style50_score > 0.9 and submission.checks_passed / submission.checks_run == 1 %}
-            <tr class="table-success" data-student-id="{{ student.id }}">
+        <div class="student-{{ student.id }}">
+            {% if submission and submission.checks_passed != None and submission.style50_score != None %}
+                {% if submission.style50_score > 0.9 and submission.checks_passed / submission.checks_run == 1 %}
+                    <tr class="table-success" data-student-id="{{ student.id }}">
                 {% elif submission.checks_passed / submission.checks_run < 0.7 %}
-                <tr class="table-danger" data-student-id="{{ student.id }}">
-                    {% else %}
+                    <tr class="table-danger" data-student-id="{{ student.id }}">
+                {% else %}
                     <tr class="table-warning" data-student-id="{{ student.id }}">
-                        {% endif %}
-                        {% else %}
-                        <tr class="table-secondary" data-student-id="{{ student.id }}">
-                            {% endif %}
-                            <th scope="row"><a
-                                    href="{{ url_for('user_page', studentid=student.id) }}">{{ student.name if student.name else student.email[:student.email.index('@')] }}</a>
-                            </th>
-                            <td>{{ student.email }}</td>
-                            <td>{{ student.github_username}}</td>
-                            <td>{{ submission.checks_passed if submission else '-' }} /
-                                {{ submission.checks_run if submission else '-' }}</td>
-                            <td>{{ submission.style50_score if submission else '-' }}</td>
-                            <td>{{ submission.timestamp if submission else '-' }}</td>
-                            <td>
-                                {% if submission and submission.archive %}
-                                <a href="{{ submission.archive }}">files</a>
-                                {% else %}
-                                -
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if submission and submission.github_url %}
-                                <a href="{{ submission.github_url }}">repo</a>
-                                {% else %}
-                                -
-                                {% endif %}
-                            </td>
-                        </tr>
+                {% endif %}
+            {% else %}
+                <tr class="table-secondary" data-student-id="{{ student.id }}">
+            {% endif %}
+                <th scope="row">
+                     <a href="{{ url_for('user_page', studentid=student.id) }}">{{ student.name if student.name else student.email[:student.email.index('@')] }}</a>
+                </th>
+                <td>{{ student.email }}</td>
+                <td>{{ student.github_username}}</td>
+                <td>{{ submission.checks_passed if submission else '-' }} /
+                    {{ submission.checks_run if submission else '-' }}</td>
+                <td>{{ submission.style50_score if submission else '-' }}</td>
+                <td>{{ submission.timestamp if submission else '-' }}</td>
+                <td>
+                    {% if submission and submission.archive %}
+                    <a href="{{ submission.archive }}">files</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td>
+                    {% if submission and submission.github_url %}
+                    <a href="{{ submission.github_url }}">repo</a>
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+            </tr>
         </div>
         {% endfor %}
     </tbody>

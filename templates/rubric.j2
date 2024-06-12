@@ -1,3 +1,35 @@
+{% block topscript %}
+<script>
+    function override_score(li, score, maxPoints, title)
+    {
+        li.innerHTML = title + ": "
+        var input = document.createElement("input")
+        input.type = "number"
+        input.value = score
+        input.max = maxPoints
+        input.min = 0
+        input.name = "score"
+        li.appendChild(input)
+
+        var problem_id = document.createElement("input")
+        problem_id.type = "hidden"
+        problem_id.value = li.parentElement.getAttribute("problem_id")
+        problem_id.name = "problem_id"
+        li.appendChild(problem_id)
+
+        var problemset_id = document.createElement("input")
+        problemset_id.type = "hidden"
+        problemset_id.value = li.parentElement.closest("ul").getAttribute("problemset_id")
+        problemset_id.name = "problemset_id"
+        li.appendChild(problemset_id)
+    }
+
+</script>
+{% endblock %}
 
 
-{{ submission.get_rubric().html() }}
+<form>
+{{ rubric.html() }}
+</form>
+</div>
+

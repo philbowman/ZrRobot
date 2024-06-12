@@ -136,8 +136,6 @@ class MyBase(Base):
     __abstract__ = True
     edited = Column(DateTime)
     pulled = Column(DateTime)
-    obj_abbreviation = 'PULLER_OBJ'
-
 
     def get_timestamp(self, kind="edited"):
         ts = None
@@ -161,14 +159,10 @@ class MyBase(Base):
             return ts.strftime("%y-%m-%d %H:%M")
         return None
 
-    def id_string(self):
-        return f"{self.obj_abbreviation}-{self.id}".lower()
+
 
     def __repr__(self):
-        return f"<{self.obj_abbreviation}---{self.id}---{self}>"
-    
-    def __str__(self):
-        return self.get_title()
+        return f"<{self.obj_abbreviation} {self.get_title()}>"
 
     def get_attributes(self):
         # Filtering out system-defined and other internal attributes
@@ -190,40 +184,6 @@ class User(UserMixin):
     def __init__(self, user_id, email):
         self.id = user_id
         self.email = email
-
-class Issue(MyBase):
-    __tablename__ = 'issues'
-    obj_abbreviation = 'ISSUE'
-
-    id = Column(Integer, primary_key=True)
-    description = Column(String)
-    # objrefs = Column(String)
-    timestamp = Column(DateTime)
-
-    @classmethod
-    def log(self, description=""):
-        issue = db.session.query(Issue).filter_by(description=description).first()
-
-        if not issue:
-            issue = Issue()
-
-        issue.description = description
-        issue.timestamp = datetime.datetime.now()
-        db.session.commit()
-        return issue
-
-
-    # def objects_referenced(self):
-    #     return self.objrefs.split(",")
-    
-    # def add_object_reference(self, obj):
-    #     if not self.objrefs:
-    #         self.objrefs = obj.id_string()
-    #     else:
-    #         self.objrefs += "," + obj.id_string()
-    #     db.session.commit()
-
-
 
 class CourseWork(MyBase):
     __tablename__ = 'courseworks'
@@ -295,13 +255,27 @@ class CourseWork(MyBase):
 
         return topic.topic_overall.coursework
 
+    @classmethod
+    def from_gradebook(cls, gradebook):
+        if not gradebook.coursework:
+            gradebook.coursework = cls()
+            db.session.commit()
+        cw = gradebook.coursework
+        cw.title = "OVERALL: " + gradebook.course.get_title()
+        cw.course = gradebook.course
+        cw.description = "Overall grades for " + gradebook.course.get_title()
+        cw.problemsets = [gradebook.make_problemset()]
+        db.session.commit()
 
+        return cw
 
     def ps(self):
         if self.problemsets:
             return self.problemsets[0]
         return None
 
+    def id_string(self):
+        return f"cw-{self.id}"
 
     def filename(self):
         return f"{make_filename(self.title)}---{self.course.gid}-{self.gid}"
@@ -310,8 +284,6 @@ class CourseWork(MyBase):
         return " ".join(self.title.split("\n")[0].split(" ")[0:3])
 
     def get_title(self):
-        if not self.title:
-            return ""
         return self.title.replace("\n", " // ")
 
     def attachment_urls(self):
@@ -462,31 +434,18 @@ class Student(MyBase):
     def get_submission_for_coursework(self, coursework):
         return db.session.query(Submission).filter_by(coursework_id=coursework.id, student_id=self.id).first()
 
-    def get_submission_for_problem(self, problem):
+    def     get_submission_for_problem(self, problem):
         session = db.session
         results = session.query(ProblemSubmission).filter_by(problem_id=problem.id, student_id=self.id).first()
         return results
-    
-    def set_github_username(self, username=None):
-        if username == self.username:
-            return username
-        
-        if username and not self.username:
-            self.username = username
-
-        else:
-            Issue.log(f"Student {self.name} has a new github username: {username} (was {self.username})")
-            self.username = username
-
-        db.session.commit()
-        return self.username
-
 
 class Course(MyBase):
     __tablename__ = 'courses'
     field_categories = CourseFieldCategory
     gapi_name = 'Course'
     obj_abbreviation = 'CRS'
+
+
 
     id = Column(Integer, primary_key=True)
     gid = Column(String)
@@ -500,15 +459,17 @@ class Course(MyBase):
     creationTime = Column(DateTime) #readonly, converted
     updateTime = Column(DateTime) #readonly, converted
     calendarId = Column(String)
-    # TODO
-    cs50_course_id = Column(Integer)
 
-    gradebook_cw_id = Column(Integer)
+    gradebook_id = Column(Integer, ForeignKey('gradebooks.id'))
 
     # TODO gradebookSettings https://developers.google.com/classroom/reference/rest/v1/courses#GradebookSettings
 
+    # One-to-One relationship with Gradebook
+    gradebook = relationship("Gradebook", back_populates="course")
+
     # Many-to-Many relationship with Student
     students = relationship("Student", secondary=student_course_association, back_populates="courses")
+    
     # One-to-Many relationship with CourseWork
     courseworks = relationship("CourseWork", back_populates="course")
     # One-to-Many relationship with Section
@@ -516,41 +477,19 @@ class Course(MyBase):
     # One-to-Many relationship with Topic
     topics = relationship("Topic", back_populates="course")
 
-    def gradebook_cw(self):
-        gradebook_cw = None
-        if self.gradebook_cw_id:
-            gradebook_cw = db.session.query(CourseWork).filter_by(id=self.gradebook_cw_id).first()
-        if not gradebook_cw:
-            gradebook_cw = CourseWork()
-            db.session.add(gradebook_cw)
-            db.session.commit()
-            self.gradebook_cw_id = gradebook_cw.id
-
-        gradebook_cw.title = "OVERALL: " + self.get_title()
-        gradebook_cw.description = "Overall grades for " + self.get_title()
-        gradebook_cw.course = self
-        db.session.commit()
-
-        return gradebook_cw
-    
     def make_gradebook(self):
-        gradebook_cw = self.gradebook_cw()
-        
-        if gradebook_cw.problemsets:
-            gradebook_ps = gradebook_cw.problemsets[0]
-        else:
-            gradebook_ps = ProblemSet()
-            db.session.add(gradebook_ps)
+        try:
+            if not self.gradebook:
+                self.gradebook = Gradebook(course=self)
+                db.session.commit()
+        except Exception as e:
+            self.gradebook = Gradebook(course=self)
+            db.session.commit()
+        self.gradebook.coursework = CourseWork.from_gradebook(self.gradebook)
+        self.gradebook.make_problemset()    
 
-        gradebook_ps.title = "OVERALL: " + self.get_title()
-        gradebook_ps.items = [] 
-        for topic in self.topics:
-            if topic.topic_overall and topic.topic_overall.coursework:
-                gradebook_ps.items.append(ProblemSetItem.from_coursework(gradebook_ps, topic.topic_overall.coursework))
-        gradebook_cw.problemsets = [gradebook_ps]
-        db.session.commit()
+        return self.gradebook
 
-        return gradebook_cw
 
     def students_not_in_section(self):
         session = db.session
@@ -564,7 +503,7 @@ class Course(MyBase):
         print(self.title)    
         print(stu)
         return stu
-
+    
     def courseworks_list(self):
         return [cw for cw in self.courseworks if cw.state == "PUBLISHED"]
     
@@ -642,7 +581,7 @@ class Submission(MyBase):
     draftGrade = Column(Integer)
     assignedGrade = Column(Integer)
     autograde = Column(Integer)
-    url = Column(String) #readonly  
+    url = Column(String) #readonly alternateLink
     history = Column(String) #readonly converted
     status = Column(String) #readonly converted
     rubric = Column(String) # string rep of dict, generated by self.grade()
@@ -672,7 +611,6 @@ class Submission(MyBase):
             "draftGrade": self.draftGrade,
             "assignedGrade": self.assignedGrade
         }
-
 
     def ps(self):
         return self.coursework.ps()
@@ -708,14 +646,8 @@ class Submission(MyBase):
         db.session.commit()
 
     def assign_draft_grade(self):
-        if not self.draftGrade:
-            self.draftGrade = self.assignedGrade + 1000
-            db.session.commit()
-        if self.draftGrade != self.assignedGrade:
-            if self.draftGrade >= 2000 and self.draftGrade-1000 != self.assignedGrade:
-                self.assignedGrade = self.draftGrade - 1000
-            else:
-                self.assignedGrade = self.draftGrade
+        if self.draftGrade and self.draftGrade != self.assignedGrade:
+            self.assignedGrade = self.draftGrade
             db.session.commit() 
 
     def update_score(self, score=None, assigned_grade=False):
@@ -723,9 +655,11 @@ class Submission(MyBase):
             score = self.get_rubric().overall_int()
         if assigned_grade:
             self.assignedGrade = score
-            self.draftGrade = score + 1000
+            self.draftGrade = None
         elif score != self.assignedGrade or score != self.draftGrade:
             self.draftGrade = score
+        if self.draftGrade == self.assignedGrade:
+            self.draftGrade = None
         
         db.session.commit()
         return score
@@ -891,16 +825,18 @@ class Problem(MyBase):
         autograder = AutoGrader(self)
         return autograder.grade(rubric)
     
-    def get_title(self):
+    def __str__(self):
         if self.title:
             return self.title
         if self.slug:
             return slug_to_foldername(self.slug)
         return self.autograder
     
+    def get_title(self):
+        return str(self)
 
-
-
+    def id_string(self):
+        return f"prob-{self.id}"
 
 class ProblemSet(MyBase):
     __tablename__ = 'problemsets'
@@ -910,7 +846,7 @@ class ProblemSet(MyBase):
     title = Column(String)
     num_required = Column(Integer, default=0)
 
-    
+    # topic_overall = relationship("TopicOverall", backref="problemset")
 
     # Many-to-Many relationship with CourseWork
     courseworks = relationship("CourseWork", secondary=coursework_problemset_association, back_populates="problemsets")
@@ -975,12 +911,9 @@ class ProblemSet(MyBase):
         return [i for i in self.items_by_sequence() if i.requirement_type == req]
 
     def adjust_num_required(self):
-        max_required = len(self.items_by_requirement('REQUIRED') + self.items_by_requirement('CHOICE'))
-        min_required = len(self.items_by_requirement('REQUIRED')) + int(bool(self.items_by_requirement('CHOICE')))
-        if self.num_required < min_required:
-            self.num_required = min_required
-        elif self.num_required > max_required:
-            self.num_required = max_required
+        req_choice_count = len(self.items_by_requirement('REQUIRED') + self.items_by_requirement('CHOICE'))
+        if self.num_required < req_choice_count:
+            self.num_required = req_choice_count
 
     def adjust_item_sequence(self):
         # adjust sequence numbers so they are sequential and unique
@@ -989,6 +922,8 @@ class ProblemSet(MyBase):
             item.sequence = i + 1
         return items
     
+    def id_string(self):
+        return f"ps-{self.id}"
 
 
 class ProblemSetItem(MyBase):
@@ -1176,9 +1111,31 @@ class Gradebook(MyBase):
     obj_abbreviation = 'GBK'
 
     id = Column(Integer, primary_key=True)
+    # course_id = Column(Integer, ForeignKey('courses.id'))
+
+    # One-to-One relationship with Course
+    # course = relationship("Course", back_populates="gradebook")
+    problemset = relationship('ProblemSet', backref='topic_overall', uselist=False)
+    coursework = relationship('CourseWork', backref='topic_overall', uselist=False)
+
+    def make_problemset(self):
+        overall_ps = self.problemset
+        if overall_ps:
+            overall_ps.title = "OVERALL: " + self.course.get_title()
+            db.session.commit()
+        else:
+            overall_ps = ProblemSet(title="OVERALL: " + self.course.get_title())
+            self.problemset = overall_ps
+        
+        overall_ps.items = []
+        for topic in self.course.topics:
+            if topic.topic_overall and topic.topic_overall.coursework:
+                overall_ps.items.append(ProblemSetItem.from_coursework(overall_ps, topic.topic_overall.coursework))
+        
+        db.session.commit()
+        return overall_ps
 
 
-    
 class Topic(MyBase):
     __tablename__ = 'topics'
     obj_abbreviation = 'TPC'

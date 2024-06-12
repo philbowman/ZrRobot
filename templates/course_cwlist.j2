@@ -1,56 +1,125 @@
+<script>
+    function hideState(states, show) {
+        var table = document.getElementById("course_cw_table_{{ course.id }}");
+        var trs = table.getElementsByTagName("tr");
+        for (var i = 0; i < trs.length; i++) {
+            var tr = trs[i];
+            var state = tr.getAttribute("data-state");
+            var dev = tr.getAttribute("data-dev");
+            if (states.includes(state) || (states.includes("DEV") && dev == "true") || (states.includes("NODEV") && dev == "false")) {
+                if (show) {
+                    tr.style.display = "";
+                }else
+                {
+                    tr.style.display = "none";
+                }
+        }
+        }
+    }
 
+    function edit_topic(span) {
+        var select = span.nextElementSibling;
+        span.style.display = "none";
+        select.style.display = "";
+        select.focus();
+    }
+</script>
 <div id="course-cw-{{ course.id }}">
     <div class="card">
         <div class="card-header" id="cw-heading-{{ course.id }}">
             <button class="btn btn-link" data-toggle="collapse" data-target="#cw-body-{{ course.id }}" aria-expanded="true" aria-controls="cw-body-{{ course.id }}">
-                <h6 class="mb-0"></h6><i class="fa-solid fa-caret-down"></i> Coursework for {{ course.title }} </h6>
+                <h6 class="mb-0"></h6><i class="fa-solid fa-caret-down"></i> Coursework for {{ course.get_title() }} </h6>
             </button>
+            <div class="form-inline" role="group">
+                <input class="form-inline" id="chkDraft" type="checkbox" onclick="hideState(['DRAFT'], this.checked)">
+                <label for="chkDraft" class="form-inline" checked>Draft</label>
+                <input checked id="chkPublished" type="checkbox"  onclick="hideState(['PUBLISHED'], this.checked)">
+                <label for="chkPublished" checked>Published</label>
+                <input id="chkDeleted" type="checkbox" onclick="hideState(['DELETED'], this.checked)">
+                <label for="chkDeleted" checked>Deleted</label>
+                <input checked id="chkDev" type="checkbox" onclick="hideState(['DEV'], this.checked)">
+                <label for="chkDev" checked>Dev</label>
+                <input id="chkNoDev" type="checkbox" onclick="hideState(['NODEV'], this.checked)">
+                <label for="chkNoDev" checked>NoDev</label>
+                <button class="btn btn-sm btn-primary" onclick="hideState([]), true">Show All</button>
         </div>
         
         
-        <div id="cw-body-{{ course.id }}" class="collapse" arlabelledby="cw-heading-{{ course.id }}" data-parent="#course-cw-{{ course.id }}">
+        <div id="cw-body-{{ course.id }}" class="collapse show" arlabelledby="cw-heading-{{ course.id }}" data-parent="#course-cw-{{ course.id }}">
+            <a class="btn btn-sm btn-outline-success" href="{{ url_for('coursework_page') }}">Create New Coursework</a>
             <table class="table table-sm table-hover" id="course_cw_table_{{ course.id }}" border="1">
                 <thead>
                     <tr>
                         <th scope="col">title</th>
                         <th scope="col">state</th>
-                        <th scope="col">scheduled</th>
+                        <th scope="col">draft</th>
+                        <th scope="col">assgn</th>
+                        <th scope="col">sched</th>
                         <th scope="col">due</th>
-                        <th scope="col">points</th>
-                        <th scope="col">assigned to</th>
-                        <th scope="col">topic id</th>
+                        <th scope="col">pts</th>
+                        <th scope="col">stu</th>
+                        <th scope="col">topic</th>
                         <th scope="col">dev</th>
-                        <th scope="col">GC URL</th>
+                        <th scope="col">GC</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% for coursework in course.courseworks %}
-                        <div class="coursework-{{ coursework.id }}" >
+                <form action="{{ url_for('course_page', course_id=course.id) }}" method="POST">
+                    {% for coursework in course.courseworks if not topic or coursework.topic_id == topic.id %}
+                        <div class="coursework-{{ coursework.id }}">
+                            <tr data-cw-id="{{ coursework.id }}"
                             {% if coursework.associatedWithDeveloper and coursework.state.name == "DRAFT" %}
-                                <tr class="table-info" data-cw-id="{{ coursework.id }}">
+                                class="table-info"
                             {% elif coursework.associatedWithDeveloper and coursework.state.name ==  "PUBLISHED" %}
-                                <tr class="table-primary" data-cw-id="{{ coursework.id }}">
+                                class="table-primary"
                             {% elif coursework.state.name == "DRAFT" %}
-                                <tr class="table-warning" data-cw-id="{{ coursework.id }}">
+                                class="table-warning" data-state="DRAFT"
+                            {% elif coursework.state.name == "DELETED" %}
+                                class="table-secondary" data-state="DELETED"                            
                             {% elif coursework.state.name ==  "PUBLISHED" %}
-                                <tr data-cw-id="{{ coursework.id }}">
+                                data-state="PUBLISHED"
+                           {% endif %}
+                            {% if coursework.associatedWithDeveloper %}
+                                  data-dev="true"
+                            {% else %}
+                                  data-dev="false"
                             {% endif %}
+                           >
                                     <th scope="row">
                                         <a href="{{ url_for('coursework_page', coursework_id=coursework.id) }}">{{ coursework.title }}</a>
                                     </th>
-                                        <td>{{ coursework.state }}</td>
+                                        <td>{{ coursework.state.name[:3] }}</td>
+                                        {% set sstat = coursework.submission_stats() %}
+                                        <td>{{ sstat['draftGraded'] }}</td>
+                                        <td>{{ sstat['assignedGraded'] }}</td>
                                         <td>{{ coursework.scheduledTime }}</td>
                                         <td>{{ coursework.dueDateTime }}</td>
                                         <td>{{ coursework.maxPoints }}</td>
                                         <td>{% if coursework.assignedToAllStudents %}All{% else %}Some{% endif %}</td>
-                                        <td>{{ coursework.topicId }}</td>
+                                        <td style="width:106px">                        
+                                            <input type="hidden" name="coursework_id" value="{{ coursework.id }}">
+                                            <span onclick="edit_topic(this);">{{coursework.topic.name if coursework.topic else "None"}}</span>
+                                            <select style="display:none;" class="form-control form-control-sm" name="topic">
+                            
+                                                <option value="" {% if not coursework.topic %}selected{% endif %}>None</option>
+                            
+                                                {% for topic in course.topics %}
+                                                    <option value="{{ topic.id }}" {% if topic == coursework.topic %}selected {% endif %}>{{ topic.name }}</option>
+                                                {% endfor %}
+                                            </select>
+                                        </td>
                                         <td>{% if coursework.associatedWithDeveloper %}yes{% else %}no{% endif %}</td>
-                                        <td>{% if coursework.url %}<a href="coursework.url">link</a>{% else %}-{% endif %}</td>
+                                        <td>{% if coursework.url %}<a target="_blank" href="coursework.url">link</a>{% else %}-{% endif %}</td>
                                 </tr>
                         </div>
                     {% endfor %}
                 </tbody>
             </table>
+            <button class="btn btn-primary" type="submit">Update</button>
+            </form>
+            <script>
+                hideState(['DRAFT', 'DELETED', 'NODEV'], false);
+            </script>
         </div>
 
     </div>

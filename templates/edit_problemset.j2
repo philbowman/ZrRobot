@@ -40,7 +40,6 @@
             "slug": "{{ problem.slug }}",
             "description": "{{ problem.description }}",
             "url": "{{ problem.url }}",
-            "difficulty": "{{ problem.difficulty }}",
             "problem_sets": [
                 {% for ps in problem.problem_sets %}
                     "{{ ps.title }}",
@@ -54,18 +53,30 @@
                 "id": "ps-{{ ps.id }}",
                 "title": "{{ ps.title }}",
                 "items": {}
-            },
+            }
         {% for item in ps.items %}
             {% if item.problem %}
-            problems[["ps-{{ ps.id }}"]]["prob-{{ item.problem.id }}"] = "{{ item.problem.get_title() }}"
-            {% else %}
-            problems[["ps-{{ ps.id }}"]]["ps-{{ item.nested_problemset.id }}"] = "{{ item.nested_problemset.title }}"
+                problems["ps-{{ ps.id }}"]['items']["prob-{{ item.problem.id }}"] = "{{ item.problem.get_title() }}"
+            {% elif item.nested_coursework %}
+                problems["ps-{{ ps.id }}"]['items']["cw-{{ item.nested_coursework.id }}"] = "{{ item.nested_coursework.title }}"
+            {% elif item.nested_problemset %}
+                problems["ps-{{ ps.id }}"]['items']["ps-{{ item.nested_problemset.id }}"] = "{{ item.nested_problemset.title }}"
+            {% endif %}
+        {% endfor %}
+    {% for cw in courseworks %}
+        problems["cw-{{ cw.id }}"] = {
+                "id": "cw-{{ cw.id }}",
+                "title": "{{ cw.title.replace("\n", " / ") }}",
+                "items": {}
+            }
+            {% if cw.problemsets %}
+                    problems["cw-{{ cw.id }}"]['items']["ps-{{ cw.problemsets[0].id }}"] = "{{ cw.problemsets[0].get_title() }}"
             {% endif %}
         {% endfor %}
     {% endfor %}
 
 
-    function addCard(selectedProblemId) {
+    function addCard(selectedProblemId, requirementType, comfortLevel) {
         let problem = problems[selectedProblemId]
         let problemsDiv = document.getElementById("problems-div");
         let cardnum = problemsDiv.childNodes.length;  
@@ -79,11 +90,11 @@
         // Append the column to the problemsDiv
         problemsDiv.appendChild(colDiv);
 
-        colDiv.appendChild(createCard(problem, cardnum));
+        colDiv.appendChild(createCard(problem, cardnum, requirementType, comfortLevel));
     }
 
 
-    function createCard(problem, cardnum) {
+    function createCard(problem, cardnum, requirementType, comfortLevel) {
 
         // Create the main card div
         const cardDiv = document.createElement('div');
@@ -97,7 +108,7 @@
         cardDiv.appendChild(cardTitle);
 
         // Create the problem, requirement, comfort, and sequence selector div
-        const selectorDiv = makeSelectorDiv(problem, cardnum);
+        const selectorDiv = makeSelectorDiv(problem, cardnum, requirementType, comfortLevel);
         cardDiv.appendChild(selectorDiv);
 
         // Create the card body div
@@ -127,6 +138,9 @@
         let item_type;
         if (problem['id'].startsWith("ps")){
             item_type = "ps"
+        }
+        else if (problem['id'].startsWith("cw")){
+            item_type = "cw"
         }
         else{
             item_type = "prob"
@@ -259,25 +273,38 @@ function makeCardBody(problem) {
     return cardBody
 }
 
-function makeSelectorDiv(problem, cardnum) {
+function makeSelectorDiv(problem, cardnum, requirementType, comfortLevel) {
     let sequence = cardnum
     if (problem['sequence'])
     {
         sequence = parseInt(problem['sequence']);
     }
     
-    const selectorDiv = document.createElement('div');
-    selectorDiv.id = 'problem-selector';
 
-    let formRow1 = document.createElement("div");
-    formRow1.className = "form-row";    
-    selectorDiv.appendChild(formRow1);
+        const selectorDiv = document.createElement('div');
+        selectorDiv.id = 'problem-selector';
+
+        let formRow1 = document.createElement("div");
+        formRow1.className = "form-row";    
+        selectorDiv.appendChild(formRow1);
+    
 
     let formCol1_1 = document.createElement("div");
     formCol1_1.className = "col";
-    const problemSelectElement = makeProblemSelect(problem, cardnum);
-    problemSelectElement.id = 'problem-select-' + cardnum;
-    formCol1_1.appendChild(problemSelectElement);
+        if (!problem['id'].startsWith("cw"))
+    {
+        const problemSelectElement = makeProblemSelect(problem, cardnum);
+        problemSelectElement.id = 'problem-select-' + cardnum;
+        formCol1_1.appendChild(problemSelectElement);
+    }
+    else{
+        const problemSelectElement = document.createElement("input");
+        problemSelectElement.type = "text";
+        problemSelectElement.name = "problems";
+        problemSelectElement.value = problem['id'];
+        problemSelectElement.className = 'form-control mt-2';
+        formCol1_1.appendChild(problemSelectElement);
+    }
     formRow1.appendChild(formCol1_1);
 
     let formRow2 = document.createElement("div");
@@ -286,12 +313,12 @@ function makeSelectorDiv(problem, cardnum) {
 
     let formCol1 = document.createElement("div");
     formCol1.className = "col";
-    formCol1.appendChild(makeRequirementSelect(problem['requirement_type']));
+    formCol1.appendChild(makeRequirementSelect(requirementType));
     formRow2.appendChild(formCol1);
 
     let formCol2 = document.createElement("div");
     formCol2.className = "col";
-    formCol2.appendChild(makeComfortLevelSelect(problem['comfort_level']));
+    formCol2.appendChild(makeComfortLevelSelect(comfortLevel));
     formRow2.appendChild(formCol2);
 
     let formCol3 = document.createElement("div");
@@ -317,7 +344,6 @@ function makeDescriptionText(problem) {
 
     </script>
 
-</script>
 {% endblock %}
 
 
@@ -372,14 +398,15 @@ function makeDescriptionText(problem) {
     </div>
 </form>
 <script>
-{% if ps_items %}
     {% for item in ps_items %}
         {% if item.problem %}
-            addCard("prob-{{ item.problem.id }}");
-        {% else %}
-            addCard("ps-{{ item.nested_problemset.id }}");
+            addCard("prob-{{ item.problem.id }}", "{{item.requirement_type.name}}", "{{ item.comfort_level.name }}");
+        {% elif item.nested_problemset %}
+            addCard("ps-{{ item.nested_problemset.id }}", "{{item.requirement_type.name}}", "{{ item.comfort_level.name }}");
+        {% elif item.nested_coursework %}
+            addCard("cw-{{ item.nested_coursework.id }}", "{{item.requirement_type.name}}", "{{ item.comfort_level.name }}");
         {% endif %}
     {% endfor %}
-{% endif %}
+    document.getElementById("number_required").value = {{ problemset.num_required if problemset.num_required else 1 }};
 </script>
 {% endblock %}

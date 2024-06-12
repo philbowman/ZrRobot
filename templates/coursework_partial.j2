@@ -1,23 +1,252 @@
-<div class="card {% if coursework.state.name == "PUBLISHED" %}coursework-published"{% elif coursework.state.name == "DRAFT" %}coursework-draft" style="display: none;"{% else %}coursework-deleted" style="display: none;"{% endif %} >
+<script>
+    {% if coursework.problemsets[0] %}
+    let current_problemset_id = {{ coursework.problemsets[0].id }};
+    {% else %}
+    let current_problemset_id;
+    {% endif %}
+    function updateProblemsetDetails(selectItem)
+    {
+
+        let problemset_id = selectItem.value;
+        if (problemset_id)
+        {
+            let problemset_details = document.getElementById("problemset-details-" + problemset_id);
+            problemset_details.style = "display: block;"
+        }
+        if (current_problemset_id)
+        {
+            let old_problemset_details = document.getElementById("problemset-details-" + current_problemset_id);
+            old_problemset_details.style = "display: none;"
+            
+        }
+        current_problemset_id = problemset_id;
+    }
+    function setPoints(points)
+    {
+        document.getElementById("maxPoints").value = points;
+    }
+    function addAttachmentField()
+    {
+        let attachments = document.getElementById("attachments");
+        let rowdiv = document.createElement("div");
+        rowdiv.className = "form-group row";
+
+        let new_attachment = document.createElement("input");
+        new_attachment.className = "form-control col-sm-11";
+        new_attachment.type = "url";
+        new_attachment.name = "attachments[]";
+        new_attachment.placeholder = "URL";
+        rowdiv.appendChild(new_attachment);
+        let delete_button = document.createElement("a");
+        delete_button.href = "#attachments";
+        delete_button.onclick = function() { deleteAttachment(this); };
+        let icon = document.createElement("i");
+        icon.className = "fa-solid fa-trash-can";
+        delete_button.appendChild(icon);
+        let delete_div = document.createElement("div");
+        delete_div.className = "col-sm-1";
+        delete_div.appendChild(delete_button);
+        rowdiv.appendChild(delete_div);
+
+        attachments.appendChild(rowdiv);
+    }
+    function deleteAttachment(deleteButton)
+    {
+        let attachment = deleteButton.parentElement.parentElement;
+        attachment.remove();
+    }
+</script>
+
+<div class="card {% if coursework.state.name == 'PUBLISHED' %}coursework-published"{% elif coursework.state.name == 'DRAFT' %}coursework-draft"{% else %}coursework-deleted"{% endif %} >
     <div class="card-body">
-        <h5 class="card-title"><a href="{{ url_for('coursework_page', coursework_id=coursework.id) }}">{{ coursework.title }}</a></h5>
-        <h6 class="card-subtitle"><a href="{{ url_for('course_page', course_id=coursework.course.id) }}">{{ coursework.course.title }}</a></h6>
-        <p class="card-text">{{ coursework.description }}</p>
-        <form action="{{ url_for('update_requirements', coursework_id=coursework.id) }}" method="post">
-            {% for problemset in problemsets %}
-                <input type="checkbox" name="requirements" value="{{ problemset.id }}" {% if problemset in coursework.problemsets %}checked{% endif %}>
-                    {{ problemset.title }}
-                </input>
-                {% include 'problemset_partial.j2' %}
-            {% endfor %}
-            <button type="submit" class="btn btn-primary">Update</button>
-        <ul class=""card-text">
+        <h2 class="card-title">{{ coursework.title if coursework.title else "New Coursework" }}</h2>
+    
+
+        <form action="{{ url_for('coursework_page', coursework_id=coursework.id) if coursework.id else url_for('coursework_page') }}" method="post">
+            <div class="row">
+                <!-- coursework details -->
+                <div class="col">
+                    <div class="form-group row">
+                        <label class="col-sm-3 col-form-label" for="title">Title</label>
+                        <input  class="form-control col-sm-9" name="title" value="{{ coursework.title if coursework.title }}" />
+                    </div>
+
+                    <!-- course select -->
+                    <div class="form-group row">
+                        <label class="col-sm-3 col-form-label" for="course">Course</label>
+                        <select class="form-control col-sm-9" name="course">
+                            {% if not coursework.course_id %}
+                                <option value="" selected disabled>None</option>
+                            {% endif %}
+                            {% for course in courses %}
+                                {% if course.id == coursework.course_id %}
+                                    <option value="{{ course.id }}" selected>{{ course.get_title() }}</option>
+                                {% else %}
+                                    <option value="{{ course.id }}">{{ course.get_title() }}</option>
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                        </div>
+                        <div class="form-group row">
+                        <label class="col-sm-3 col-form-label" for="topic">Topic</label>
+                        <select class="form-control col-sm-9" name="topic">
+                            
+                                <option value="" {% if not coursework.topic %}selected{% endif %}>None</option>
+                            
+                            {% for topic in coursework.course.topics %}
+                                <option value="{{ topic.id }}" {% if topic == coursework.topic %}selected {% endif %}>{{ topic.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div class="form-group row">
+                        <label class="col-sm-3 col-form-label" for="dueDateTime">Due Date</label>
+                        <input class="form-control col-sm-9" name="dueDateTime" type="datetime-local" value="{{ coursework.dueDateTime }}" />
+                    </div>
+
+                    <div class="form-group row">
+                        
+                        <label class="col-sm-3 col-form-label" for="scheduledTime">Post Date</label>
+                        <input class="form-control col-sm-9" name="scheduledTime" type="datetime-local" value="{{ coursework.scheduledTime }}" {% if coursework.state == "DRAFT" %}disabled{% endif %}/>
+                    </div>
+                    
+                    <div class="form-group row">
+                        <label class="col-sm-3 col-form-label" for="maxPoints">Max Points</label>
+                        <input class="form-control col-sm-2" id="maxPoints" name="maxPoints" type="number" value="{{ coursework.maxPoints }}" />
+                        <a href="#" class="btn-sm btn-link" onclick="setPoints(1)">1</a>
+                        <a href="#" class="btn-sm btn-link" onclick="setPoints(8)">8</a>
+                        <a href="#" class="btn-sm btn-link" onclick="setPoints(88)">88</a>
+                        <a href="#" class="btn-sm btn-link" onclick="setPoints(888)">888</a>
+                    </div>
+                    <div class="form-group row">
+                        <label class="col-sm-3 col-form-label" for="draft">Draft</label>
+                        <input type="checkbox" name="draft" {% if not coursework.state or coursework.state.name == "DRAFT" %}checked{% endif %} />
+                    </div>
+                    {# <h6 class="card-subtitle"><a href="{{ url_for('course_page', course_id=coursework.course.id) }}">{{ coursework.course.title }}</a></h6> #}
+                    {# <p class="card-text">{{ coursework.description }}</p> #}
+                    
+                    
+
+
+
+                </div>
+
+                <!-- problemset select and details -->
+                <div class="col">
+                    <label for="problemset">Problemset</label>
+                    <select name="problemset" onchange="updateProblemsetDetails(this)">
+                    
+                    <option value="" {% if not coursework.problemsets %}selected{% endif %}>None</option>
+                    {% if coursework.problemsets %}
+                    {% set selected_problemset = coursework.problemsets[0] %}
+                    {% endif %}
+                    {% for ps in problemsets %}
+
+                        {% if ps in coursework.problemsets %}
+                            <option value="{{ ps.id }}" selected>{{ ps.title }}</option>
+                        {% else %}
+                            <option value="{{ ps.id }}">{{ ps.title }}</option>
+                        {% endif %}
+                    {% endfor %}
+                    </select>
+                    {% for problemset in problemsets %}
+                        <div id="problemset-details-{{ problemset.id }}"
+                        {% if selected_problemset and problemset.id == selected_problemset.id %}
+                            >
+                        {% else %}
+                            style="display: none;">
+                        {% endif %}
+                                {% include 'problemset_partial.j2' %}
+
+                            </div>
+                    {% endfor %}
+                    
+                </div>
+            </div>
+            
+            <!-- description -->
+            <div class="form-group row">
+                <label for="description">Description</label>
+                <textarea class="form-control col-sm-12" type="textarea" name="description">{{ coursework.description if coursework.description }}</textarea>
+            </div>
+
+            <!-- attachments -->
+                <h4 class="card-text">Attachments</h4>
+                <div class="form-group">
+                <div id="attachments">
+                    {% set attachment_num = 1 %}
+                    {% if coursework.attachments %}
+                        {% for url in coursework.attachment_urls() %}
+                            <div class="form-group row">
+                                <input class="form-control col-sm-11" type="url" name="attachments[]" value="{{ url }}" />
+                                <div class="col-sm-1">
+                                    <a href="#" onclick="deleteAttachment(this)"><i class="fa-solid fa-trash-can"></i></a>
+                                </div>
+                            </div>
+                            {% set attachment_num = attachment_num + 1 %}
+                        {% endfor %}
+                    {% else %}
+                            <div class="form-group row">
+                                <input class="form-control col-sm-11" type="url" name="attachments[]" placeholder="URL" />
+                                    <div class="col-sm-1">
+                                        <a href="#attachments" onclick="deleteAttachment(this)"><i class="fa-solid fa-trash-can"></i></a>
+                                    </div>      
+                            </div>                  
+                    {% endif %}
+                </div>
+
+            <div class="form-group row">
+                <a href="#attachments" class="btn btn-sm btn-link" onclick="addAttachmentField()">Add Attachment</a>
+            </div>
+            </div>
+            
+            <div class="form-group row">
+                
+                {% if coursework.id %}
+                    <button type="submit" class="btn btn-success">Update</button>
+                    <a href="{{ url_for('coursework_pull', coursework_id=coursework.id) }}" class="btn btn-primary">Pull GC Data</a>
+                    <a href="{{ url_for('submissions_pull', coursework_id=coursework.id) }}" class="btn btn-info">Pull Submission Data</a>
+                    <a class="btn btn-warning" href="{{url_for('make_coursework_copy', coursework_id=coursework.id, draft=1)}}">Make a copy as draft</a>
+                    <a class="btn btn-danger" href="{{url_for('make_coursework_copy', coursework_id=coursework.id, draft=0)}}">Publish a copy w/ submissions</a>
+                {% else %}
+                    <button type="submit" class="btn btn-success">Create</button>
+                {% endif %}
+            </div>
+        </form>
+
+    
+
+    <div class="row">
+        <ul class="card-text">
+        <li>Topic: {{coursework.topic.name}}</li>
+        <li>Edited {{coursework.edited}}</li>
+        <li>Pulled {{coursework.pulled}}</li>
+            {% if coursework.url %}
+                <li><a href="{{ coursework.url }}">Google Classroom</a></li>
+            {% elif coursework.state.name == "PUBLISHED" %}
+                NOT ON GOOGLE CLASSROOM
+            {% else %}
+                {{ coursework.state.name }}
+            {% endif %}
+
             {% set submission_stats = coursework.submission_stats()%}
             {% for s, n in submission_stats.items() %}
                 <li>{{ n }} {{ s }}</li>
             {% endfor %}
         </ul>
-        {% include 'coursework_submissionlist.j2' %}
+        </div>
+        <div class="row">
+        {% if coursework.id %}
+        <a href="{{ url_for('coursework_grade', coursework_id=coursework.id, assigned_grade=0) }}" class="btn btn-warning">Grade All Submissions (draftGrade)</a>
+        <a href="{{ url_for('coursework_grade', coursework_id=coursework.id, assigned_grade=1) }}" class="btn btn-danger">Grade All Submissions (assignedGrade)</a>
+        <a href="{{ url_for('coursework_post_grades', coursework_id=coursework.id) }}" class="btn btn-dark">Post draftGrades as assignedGrades</a>
+        {% endif %}
+        </div>
+
+
+        {% if coursework.state == "PUBLISHED" %}
+            {% include 'coursework_submissionlist.j2' %}
+        {% endif %}
         </div>
 
     </div>

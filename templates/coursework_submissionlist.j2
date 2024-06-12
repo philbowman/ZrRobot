@@ -15,40 +15,58 @@
                         <th scope="col">student</th>
                         <th scope="col">status</th>
                         <th scope="col">state</th>
-                        <th scope="col">creationTime</th>
-                        <th scope="col">updateTime</th>
+                        <th scope="col">updated</th>
+                        <th scope="col">pulled</th>
+                        <th scope="col">edited</th>
+                        <th scope="col">graded</th>
                         <th scope="col">late</th>
                         <th scope="col">draftGrade</th>
-                        <th scope="col">assignedGrade</th>
-                        <th scope="col">dev</th>
-                        <th scope="col">GC URL</th>
+                        <th scope="col">grade</th>
+                        <th scope="col">GC</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for submission in coursework.submissions %}
                         <div class="submission-{{ submission.id }}" >
-                            {% if submission.late %}
-                                <tr class="table-danger" data-cw-id="{{ coursework.id }}">
-                            {% elif submission.status ==  "TURNED_IN" or submission.status == "RESUBMITTED" %}
-                                <tr class="table-warning" data-cw-id="{{ coursework.id }}">
-                            {% elif submission.status == "GRADED" %}
-                                <tr class="table-success" data-cw-id="{{ coursework.id }}">
-                            {% else %}
-                                <tr data-cw-id="{{ coursework.id }}">
-                            {% endif %}
-                                    <th scope="row">
-                                        <a href="mailto:{{ submission.student.email }}">{{ submission.student.name }}</a>
-                                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('submission_page', coursework_id=submission.coursework.id, submission_id=submission.id) }}">details</a>
-                                    </th>
-                                    <td>{{ submission.status }}</td>
-                                    <td>{{ submission.state }}</td>
-                                    <td>{{ submission.creationTime }}</td>
-                                    <td>{{ submission.updateTime }}</td>
+                            <tr data-cw-id="{{ coursework.id }}">
+
+                                <th scope="row">
+                                    <a href="mailto:{{ submission.student.email }}">{{ submission.student.name }} ({{submission.student.username if submission.student.username}})</a>
+                                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('submission_page', coursework_id=submission.coursework.id, submission_id=submission.id) }}">details</a>
+                                </th>
+
+                                {% if submission.late %}
+                                    <td class="table-danger">
+                                {% elif submission.status ==  "TURNED_IN" or submission.status == "RESUBMITTED" %}
+                                    <td class="table-warning">
+                                {% elif submission.status == "GRADED" %}
+                                    <td class="table-success">
+                                {% else %}
+                                    <td>
+                                {% endif %}                                    
+                                    {{ submission.status }}</td>
+                                    <td>{{ submission.state.name if submission.state else "?" }}</td>
+                                    
+                                    {% if submission.get_timestamp("edited") != submission.get_timestamp("updated") %}
+                                        <td class="table-danger">{{ submission.get_timestamp("updated") }}</td>
+                                    {% else %}
+                                        <td>{{ submission.get_timestamp("updated") }}</td>
+                                    {% endif %}
+                                    <td>{{ submission.get_timestamp("pulled") }}</td>
+                                    <td>{{ submission.get_timestamp("edited") }}</td>
+                                    <td>{{ submission.get_timestamp("graded") }}</td>
                                     <td>{{ submission.late }}</td>
-                                    <td>{{ submission.draftGrade }}</td>
+
+                                    {% set dg = submission.draftGrade|string %}
+                                    {% set ag = submission.assignedGrade|string %}
+
+                                    {% if submission.draftGrade and submission.assignedGrade and dg[1:] != ag[1:] %}
+                                        <td class="table-danger">{{ submission.draftGrade }}</td>
+                                    {% else %}
+                                        <td>{{ submission.draftGrade }}</td>
+                                    {% endif %}
                                     <td>{{ submission.assignedGrade }}</td>
-                                        <td>{% if coursework.associatedWithDeveloper %}yes{% else %}no{% endif %}</td>
-                                    <td><a href="{{ submission.alternateLink }}">GC</a></td>
+                                    <td><a target="_blank" href="{{ submission.url }}">GC</a></td>
 
                                 </tr>
                         </div>

@@ -9,7 +9,7 @@ import re
 import numpy
 import requests
 import re
-import csv
+import csv, json
 #ChatGPT
 def dict_to_html_ul(dictionary):
     if not isinstance(dictionary, dict):
@@ -196,7 +196,7 @@ def make_content_section(d: dict, title=None):
             section += "{}: {}  \n".format(key, d[key])
         
 
-def lettergrade(score):
+def lettergrade(score, required=True):
     """
     8 A 
     7 B 
@@ -208,7 +208,20 @@ def lettergrade(score):
     1 Excused
     0 Ungraded
     """
-    percent = float(score[0] / score[1])
+    maxpoints = 8
+    if type(score) is tuple:
+        points = score[0]
+        maxpoints = score[1]
+    elif type(score) is str:
+        score = int(score)
+    elif type(score) in [int, float]:
+        points = score
+    elif type(score) is list:
+        return ",".join([lettergrade(s, required) for s in score])
+    else:
+        raise TypeError("score must be tuple, string, or int")
+    
+    percent = float(points / maxpoints)
     if percent >= .9:
         return "A"
     if percent >= .8:
@@ -217,7 +230,7 @@ def lettergrade(score):
         return "C"
     if percent >= .6:
         return "D"
-    if percent == .125:
+    if not required:
         return "-"
     # if percent >= .5:
     #     return "F"
@@ -299,7 +312,7 @@ def bool_avg(input_scores:list, num_required=None, exclude_zero=True):
         return None
     if not num_required:
         num_required = len(scores)
-    zero_scores = [s for s in scores if s < 0]
+    zero_scores = [s for s in scores if s <= 0]
     if zero_scores and exclude_zero:
         nonzero_scores = [s for s in scores if s > 0]
         while len(nonzero_scores) < num_required:
@@ -311,16 +324,25 @@ def bool_avg(input_scores:list, num_required=None, exclude_zero=True):
         if s < 0:
             return 0
         return s
+    while len(scores) > num_required:
+        scores.remove(min(scores))
+    num_exceeds = len([s for s in scores if s == 8])
     meets = not bool([s for s in scores if s < 7])
-    exceeds = meets and bool([s for s in scores if s == 8])
+    insufficient = bool([s for s in scores if s < 5])
+    exceeds = meets and num_exceeds
     if exceeds:
         return 8
     if meets:
         return 7
     if not bool([s for s in scores if s < 6]):
         return 6
-    if bool([s for s in scores if s > 4]):
+    if not insufficient: 
+        if len([s for s in scores if s < 6]) < len([s for s in scores if s > 5]):
+            return 6
         return 5
+    if len([s for s in scores if s < 5]) <= len([s for s in scores if s > 4]):
+        return 5
+    return 4
     
     return round(numpy.mean(scores))
 
@@ -359,7 +381,27 @@ def validate_target(target):
     logger.info("validating " + target)
     if not target:
         return False
-    r = request_url(target)
+    
+    if os.path.exists("validated_targets.json"):
+        with open("validated_targets.json", "r") as f:
+            targets = json.load(f)
+    else:
+        targets = {}
+
+    
+    if target in targets.keys():
+        if targets[target] == 404:
+            r = request_url(target)
+        else:
+            return True
+    else:
+        r = request_url(target)
+    
+    if r and r is not Exception:
+        targets[target] = r.status_code
+        with open("validated_targets.json", "w") as f:
+            json.dump(targets, f)
+
     if not r or r.status_code == 404 or r is Exception:
         return False
     return True

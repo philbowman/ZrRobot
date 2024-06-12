@@ -1,10 +1,192 @@
 {% extends "base.j2" %}
 
 {% block title %}
-    {{ 'Edit' if problem else 'Create' }} Problem
+    {{ 'Edit' if problem else 'Create' }} Problem {{ problem.get_title() if problem else '' }}
 {% endblock %}
 
 {% block content %}
+    <script>
+
+    const all_gc = {{ grading_categories }};
+
+    function toggle_manual_criteria(checkbox) {
+        if (checkbox.checked) {
+            document.getElementById("manual_criteria").style.display = "block";
+            document.getElementById("autograder_input").style.display = "none";
+            if (document.getElementById('mc_elements').childElementCount < 1) {
+                document.getElementById('mc_elements').appendChild(createManualCriteriaElement());
+            }
+        } else {
+            document.getElementById("manual_criteria").style.display = "none";
+            document.getElementById("autograder_input").style.display = "block";
+        }
+    }
+
+    function createManualCriteriaElement(
+        sequenceValue = '',
+        titleValue = '',
+        maxPointsValue = '',
+        descriptionValue = '',
+        selectedCategories = []
+        ) {
+        const div = document.createElement('div');
+        cardnum = document.getElementById('mc_elements').childElementCount + 1;
+        if (!sequenceValue) {
+            sequenceValue = cardnum;
+        }
+        div.setAttribute('data-cardnum', cardnum.toString());
+        div.id = 'manual_criteria_' + cardnum.toString();
+        div.className = 'form-group card';
+        const header = document.createElement('h5');
+        header.className = 'card-header';
+        titlediv = document.createElement('div');
+        titlediv.className = 'col';
+        if (titleValue) {
+            header.textContent = titleValue;
+        } else {
+            header.textContent = 'Criteria' + cardnum.toString();
+        }
+
+        header.appendChild(titlediv);
+        // Create a cancel button
+        const cancelButton = document.createElement('button');
+        cancelButton.type = 'button';
+        cancelButton.className = 'btn btn-danger mt-2';
+        cancelButton.innerText = 'Remove';
+        cancelButton.addEventListener('click', function() {
+            // Remove the card when the cancel button is clicked
+            div.remove();
+        });
+        canceldiv = document.createElement('div');
+        canceldiv.className = 'col';
+        canceldiv.appendChild(cancelButton);
+        header.appendChild(canceldiv);
+
+
+
+        div.appendChild(header);
+
+        const row1 = document.createElement('div');
+        row1.className = 'row';
+
+        // Sequence input
+        const col1 = document.createElement('div');
+        col1.className = 'col-sm-2';
+        const sequenceLabel = document.createElement('label');
+        sequenceLabel.setAttribute('for', 'mc_sequence');
+        sequenceLabel.textContent = 'Sequence';
+        const sequenceInput = document.createElement('input');
+        sequenceInput.type = 'number';
+        sequenceInput.name = 'mc_sequence';
+        sequenceInput.className = 'form-control';
+        sequenceInput.value = sequenceValue;
+        col1.appendChild(sequenceLabel);
+        col1.appendChild(sequenceInput);
+
+        // Title input
+        const col2 = document.createElement('div');
+        col2.className = 'col-sm-8';
+        const titleLabel = document.createElement('label');
+        titleLabel.setAttribute('for', 'mc_title');
+        titleLabel.textContent = 'Title';
+        const titleInput = document.createElement('input');
+        titleInput.name = 'mc_title';
+        titleInput.className = 'form-control';
+        titleInput.value = titleValue;
+        col2.appendChild(titleLabel);
+        col2.appendChild(titleInput);
+
+        // Max Points input
+        const col3 = document.createElement('div');
+        col3.className = 'col-sm-2';
+        const maxPointsLabel = document.createElement('label');
+        maxPointsLabel.setAttribute('for', 'mc_max_points');
+        maxPointsLabel.textContent = 'Max Points';
+        const maxPointsInput = document.createElement('input');
+        maxPointsInput.name = 'mc_max_points';
+        maxPointsInput.className = 'form-control';
+        maxPointsInput.type = 'number';
+        maxPointsInput.value = maxPointsValue;
+        col3.appendChild(maxPointsLabel);
+        col3.appendChild(maxPointsInput);
+
+        row1.appendChild(col1);
+        row1.appendChild(col2);
+        row1.appendChild(col3);
+
+        const row2 = document.createElement('div');
+        row2.className = 'row';
+
+        // Description textarea
+        const col4 = document.createElement('div');
+        col4.className = 'col';
+        const descriptionLabel = document.createElement('label');
+        descriptionLabel.setAttribute('for', 'mc_description');
+        descriptionLabel.textContent = 'Description';
+        const descriptionTextarea = document.createElement('textarea');
+        descriptionTextarea.name = 'mc_description';
+        descriptionTextarea.className = 'form-control';
+        descriptionTextarea.value = descriptionValue;
+        col4.appendChild(descriptionLabel);
+        col4.appendChild(descriptionTextarea);
+
+        // Grading Categories select
+        const col5 = document.createElement('div');
+        col5.className = 'col';
+        const categoriesLabel = document.createElement('label');
+        categoriesLabel.setAttribute('for', 'mc_grading_categories');
+        categoriesLabel.textContent = 'Grading Categories';
+        const categoriesSelect = document.createElement('select');
+        categoriesSelect.multiple = true;
+        categoriesSelect.name = 'mc_grading_categories';
+        categoriesSelect.className = 'form-control';
+        categoriesSelect.setAttribute('onchange', "makeCategoriesList(this);");
+
+        // Add options to select based on selectedCategories array
+        for (const category of all_gc) {
+            const option = document.createElement('option');
+            option.value = category;
+            option.textContent = category;
+            if (selectedCategories.includes(category.toUpperCase())) {
+                option.selected = true;
+            }
+            categoriesSelect.appendChild(option);
+        }
+        categoriesList = document.createElement('input');
+        categoriesList.type = 'hidden';
+        categoriesList.name = 'mc_categories_list';
+        // categoriesList.value = selectedCategories.join(",");
+
+
+        col5.appendChild(categoriesLabel);
+        col5.appendChild(categoriesSelect);
+        col5.appendChild(categoriesList);
+
+        row2.appendChild(col4);
+        row2.appendChild(col5);
+
+        div.appendChild(row1);
+        div.appendChild(row2);
+
+        return div;
+        }
+
+    
+    function makeCategoriesList(select) {
+        categoriesList = select.parentElement.querySelector('input[name="mc_categories_list"]');
+        categoriesList.value = '';
+        // add selected categoires to list
+        for (const option of select.selectedOptions) {
+            categoriesList.value += option.value + ',';
+        }
+        // remove trailing comma
+        categoriesList.value = categoriesList.value.slice(0, -1);
+    }
+    </script>
+
+
+
+
     <h1>{{ 'Edit' if problem else 'Create' }} Problem</h1>
 
     <form method="post">
@@ -20,13 +202,42 @@
             <label for="url">URL:</label>
             <input type="text" name="url" class="form-control" value="{{ problem.url if problem }}">
         </div>
-        <div class="form-group">
-            <label for="autograder">Autograder:</label>
-            <input type="text" name="autograder" class="form-control" value="{{ problem.autograder if problem else 'submit50'}}">
-        </div>        <!-- Add more fields here as needed -->
+        <div class="form-group row">
+            <div class="col">
+                <input type="checkbox" id="manual_criteria_checkbox" onchange="toggle_manual_criteria(this)" name="manual_criteria" {% if problem and problem.manual_criteria %}checked{% endif %}>
+                <label for="grading_categories">Use Manual Criteria</label>
+            </div>
+            <div class="col">
+                <label for="grading_categories">Average Method</label>
+                <select id="average_method_checkbox" name="avg_method">
+                    <option value="bool" {% if not problem or not problem.avg_method or (problem and problem.avg_method == 'bool') %}selected{% endif %}>bool</option>
+                    <option value="mean" {% if problem and problem.avg_method and problem.avg_method == 'mean' %}selected{% endif %}>mean</option>
+                </select>
+            </div>
+            <div id="autograder_input" class="col">
+                        <label for="autograder">Autograder:</label>
+                        <input type="text" name="autograder" class="form-control" value="{{ problem.autograder if problem else 'submit50'}}">
+            </div>
+            
+
+        </div>
+        <div id="manual_criteria" style="display: none;">
+
+            <div id="mc_elements"></div>
+
+            <a class="btn btn-sm btn-primary" href="#" onclick="document.getElementById('mc_elements').appendChild(createManualCriteriaElement()); return false;">Add Criteria</a>
+        </div>
+
+
+
         <button type="submit" class="btn btn-success">
             {{ 'Update' if problem else 'Create' }} Problem
         </button>
+
+
+
+
+
     </form>
     
     {% if problem %}
@@ -35,4 +246,27 @@
         </a>
     {% endif %}
     
+<script>
+    let man_checkbox = document.getElementById("manual_criteria_checkbox");
+{% if problem.criteria %}
+    man_checkbox.checked = true;    
+    {% for item in problem.criteria %}
+        document.getElementById('mc_elements').appendChild(createManualCriteriaElement(
+            {{ item.sequence }},
+            '{{ item.title.replace("'", "") }}',
+            {{ item.max_points }},
+            '{{ item.description }}',
+            {{ item.get_grading_categories() }}
+            ));
+    {% endfor %}
+{% endif %}
+toggle_manual_criteria(man_checkbox);
+//run makeCategoriesList on all "mc_grading_categories" select elements
+for (const select of document.querySelectorAll('select[name="mc_grading_categories"]')) {
+    makeCategoriesList(select);
+}
+
+</script>
+
+
 {% endblock %}

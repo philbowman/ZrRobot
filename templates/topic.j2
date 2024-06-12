@@ -1,0 +1,94 @@
+{% extends 'base.j2' %}
+{% set course = topic.course %}
+{% block title %}{{ topic.title }}{% endblock %}
+{% block sidebar %}
+{% include 'course_sidebar.j2' %}
+{% endblock %}
+{% block content %}
+<h1>{{ topic.name }}</h1>
+{% if topic.id %}
+<ul>
+<li>Overall CW: {% if topic.topic_overall and topic.topic_overall.coursework %}<a href="{{ url_for('coursework_page', coursework_id=topic.topic_overall.coursework.id) }}">{{ topic.topic_overall.coursework.title }}</a>{% else %}None{% endif %}</li>
+<li>Overall PS: {% if topic.topic_overall and topic.topic_overall.problemset %}<a href="{{url_for('create_or_edit_problemset', problemset_id=topic.topic_overall.problemset.id) }}">{{topic.topic_overall.problemset.title}}</a>{% else %}None{% endif %}</li>
+</ul>
+<a class=" btn btn-success" href="{{ url_for('make_topic_overall', topic_id=topic.id) }}">Make Topic Grade Calculation</a>
+<a class=" btn btn-warning" href="{{ url_for('topic_grade', topic_id=topic.id, grade_assignments=0, assigned_grade=0) }}">Calculate Topic Grade</a>
+<a class=" btn btn-danger" href="{{ url_for('topic_grade', topic_id=topic.id, grade_assignments=1, assigned_grade=0) }}">Grade Topic Coursework</a>
+{% endif %}
+
+{% set show_all=True %}
+
+{% include 'course_cwlist.j2' %}
+
+
+<div id="course-topic-{{ topic.id }}">
+    <div class="card">
+        <div class="card-header" id="submissions-heading-{{ coursework.id }}">
+            <button class="btn btn-link" data-toggle="collapse" data-target="#submissions-body-{{ coursework.id }}" aria-expanded="true" aria-controls="submissions-body-{{ coursework.id }}">
+                <h6 class="mb-0"></h6><i class="fa-solid fa-caret-down"></i> </button>Submissions for {{ coursework.title }} </h6>
+            
+        </div>
+        
+        
+        <div id="submissions-body-{{ coursework.id }}" class="collapse show" arlabelledby="submissions-heading-{{ coursework.id }}" data-parent="#cw-submission-{{ coursework.id }}">
+            <table class="table table-sm table-hover" id="topic_gradebook_table_{{ coursework.id }}" border="1">
+                <thead>
+                    <tr>
+                        <th scope="col">student</th>
+                        {% for coursework in topic.courseworks %}
+                            <th scope="col">{{ coursework.title }}</th>
+                        {% endfor %}
+
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for student in course.students %}
+                        <div class="student-{{ student.id }}" >
+                            <tr data-student-id="{{ student.id }}">
+
+                                <th scope="row">
+                                    <a href="mailto:{{ student.email }}">{{ student.name }} ({{student.username if student.username}})</a>
+                                </th>
+
+                                {% for coursework in topic.courseworks %}
+                                        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('submission_page', coursework_id=submission.coursework.id, submission_id=submission.id) }}">details</a>
+
+                                    {% if submission.late %}
+                                        <td class="table-danger">
+                                    {% elif submission.status ==  "TURNED_IN" or submission.status == "RESUBMITTED" %}
+                                        <td class="table-warning">
+                                    {% elif submission.status == "GRADED" %}
+                                        <td class="table-success">
+                                    {% else %}
+                                        <td>
+                                    {% endif %}                                    
+                                        {{ submission.status }}</td>
+                                        <td>{{ submission.state.name if submission.state else "?" }}</td>
+                                        
+                                        {% if submission.get_timestamp("edited") != submission.get_timestamp("updated") %}
+                                            <td class="table-danger">{{ submission.get_timestamp("updated") }}</td>
+                                        {% else %}
+                                            <td>{{ submission.get_timestamp("updated") }}</td>
+                                        {% endif %}
+                                        <td>{{ submission.get_timestamp("pulled") }}</td>
+                                        <td>{{ submission.get_timestamp("edited") }}</td>
+                                        <td>{{ submission.get_timestamp("graded") }}</td>
+                                        <td>{{ submission.late }}</td>
+                                        <td>{{ submission.draftGrade }}</td>
+                                        <td>{{ submission.assignedGrade }}</td>
+                                        <td><a target="_blank" href="{{ submission.url }}">GC</a></td>
+                                    
+                                {% endfor %}
+                                </tr>
+                        </div>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+</div>
+
+
+
+{% endblock %}

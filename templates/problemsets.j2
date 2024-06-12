@@ -10,10 +10,12 @@ Problem Sets
     <a href="{{ url_for('create_or_edit_problemset') }}" class="btn btn-success">Create</a>
 </h1>
 {% for problemset in problemsets %}
-<h2>{{ problemset.title }}
-<a href="{{ url_for('create_or_edit_problemset', problemset_id=problemset.id) }}" class="btn btn-primary btn-sm">Edit</a>
-<a href="{{ url_for('delete_problemset', problemset_id=problemset.id) }}" class="btn btn-danger btn-sm">Delete</a>
-</h2>
-{% include 'problemset_partial.j2'%}
+    <h2>{{ problemset.title }}
+        <a href="{{ url_for('create_or_edit_problemset', problemset_id=problemset.id) }}" class="btn btn-primary btn-sm">Edit</a>
+        <a href="{{ url_for('delete_problemset', problemset_id=problemset.id) }}" class="btn btn-danger btn-sm">Delete</a>
+    </h2>
+
+    {% set detailed_problemset = problemset %}
+    {% include 'problemset_partial.j2'%}
 {% endfor %}
 {% endblock %}

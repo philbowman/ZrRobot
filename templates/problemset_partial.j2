@@ -1,9 +1,13 @@
+
+
+{% if problemset %}
+<h4><a href="{{ url_for('create_or_edit_problemset', problemset_id=problemset.id)}}">{{ problemset.title }}</a></h4>
 Number required: {{ problemset.num_required }}
 <ul>
     {% for item in problemset.items %}
     <li>
         {% if item.problem %}
-        <a href="{{ url_for('problem_page', foldername=item.problem.foldername) }}">
+        <a href="{{ url_for('problem_page', problem_id=item.problem.id) }}">
             {{ item.problem.title if item.problem.title else item.problem.slug }}
         </a>
         ({{ item.comfort_level.value }}, {{ item.requirement_type.value }})
@@ -12,7 +16,7 @@ Number required: {{ problemset.num_required }}
         <ul>
             {% for nested_item in item.nested_problemset.items %}
             <li>
-                <a href="{{ url_for('problem_page', foldername=nested_item.problem.foldername) }}">
+                <a href="{{ url_for('problem_page', problem_id=nested_item.problem.id) }}">
                     {{ nested_item.problem.title if nested_item.problem.title else nested_item.problem.slug }}
                 </a>
                 ({{ nested_item.comfort_level.value }}, {{ nested_item.requirement_type.value }})
@@ -23,3 +27,4 @@ Number required: {{ problemset.num_required }}
     </li>
     {% endfor %}
 </ul>
+{% endif %}

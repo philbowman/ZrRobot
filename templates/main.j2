@@ -1,1 +1,27 @@
 {% extends 'base.j2' %}
+
+{% block head %}
+<script src="https://apis.google.com/js/platform.js" async defer></script>
+<meta name="google-signin-client_id" content="{{ google_clientid }}.apps.googleusercontent.com">
+{% endblock %}
+
+{% block content %}
+Welcome, {{ current_user.email }}
+<a href="#" onclick="signOut();">Sign out</a>
+
+<script>
+  function signOut() {
+    var auth2 = gapi.auth2.getAuthInstance();
+    auth2.signOut().then(function () {
+      console.log('User signed out.');
+    });
+  }
+</script>
+
+{% for issue in issues %}
+  <div>
+    <h4>{{ issue.timestamp }}</h4>
+    <p>{{ issue.description }}</p>
+  </div>
+{% endfor %}
+{% endblock %}

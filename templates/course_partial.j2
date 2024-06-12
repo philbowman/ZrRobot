@@ -1,12 +1,13 @@
-<div class="card {% if course.sections %}course-section"{% else %}course-nosection" style="display: none;"{% endif %}>
+<div id="course-card-{{course.id}}" class="card {% if show_all or course.sections %}course-section"{% else %}course-nosection" style="display: none;"{% endif %}>
     <div class="card-body">
-        <h5 class="card-title"><a href="{{ url_for('course_page', course_id=course.id) }}">{{ course.title }}</a></h5>
+        <h5 class="card-title"><a href="{{ url_for('course_page', course_id=course.id)}}">{{ course.get_title() }}</a></h5>
         <ul>
             <li>Section Description: {{ course.section_desc }}</li>
             <li>Description Heading: {{ course.descriptionHeading }}</li>
             <li>Course Description: {{ course.description }}</li>
-            <li><a href="{{ course.url }}">Link to Google Classroom</a></li>
+            <li><a target="_blank" href="{{ course.url }}">Link to Google Classroom</a></li>
             <li>Enrollment code: {{ course.enrollmentCode }}</li>
+            <li><form  method="POST" action="{{ url_for('set_cs50_course', course_id=course.id) }}"><input type="number" name="cs50_course_id" value="{{ course.cs50_course_id if course.cs50_course_id else '' }}"><button type="submit" class="btn btn-sm">set</button></form></li>
         </ul>
 
         {% set extra_students = course.students_not_in_section() %}
@@ -34,5 +35,10 @@
             {% endif %}
         </div>
 
+    <a href="{{url_for('gradebook_page', course_id=course.id) }}" class="btn btn-success">Gradebook</a>
+    <a href="{{ url_for('course_pull', course_id=course.id, courseworks=0, submissions=0) }}" class="btn btn-primary">Pull GC Course Data</a>
+    {# <a href="{{ url_for('course_pull', course_id=course.id, courseworks=1, submissions=0) }}" class="btn btn-secondary">Pull GC Course & CourseWork Data</a> #}
+    <a href="{{ url_for('course_pull', course_id=course.id, courseworks=1, submissions=1) }}" class="btn btn-warning">Pull GC Course, CW & Submission Data</a>
     </div>
+    {% include 'course_cwlist.j2'%}
 </div>

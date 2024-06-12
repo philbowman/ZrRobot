@@ -1,0 +1,31 @@
+{% if submission or topic or coursework %}
+<nav style="--bs-breadcrumb-divider: url(&#34;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8'%3E%3Cpath d='M2.5 0L1 1.5 3.5 4 1 6.5 2.5 8l4-4-4-4z' fill='currentColor'/%3E%3C/svg%3E&#34;);" aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    {% if submission %}
+        <li class="breadcrumb-item"><a href="{{ url_for('course_page', course_id=submission.coursework.course.id) }}">{{ submission.coursework.course.get_title() }}</a></li>
+        {% if submission.coursework.topic %}
+            <li class="breadcrumb-item"><a href="{{ url_for('topic_page', topic_id=submission.coursework.topic_id) }}">{{ submission.coursework.topic.get_title() }}</a></li>
+        {% else %}
+                <li class="breadcrumb-item"><a href="{{ url_for('topic_page', course_id=submission.coursework.course.id) }}"><em>No Topic</em></a></li>
+        {% endif %}
+        <li class="breadcrumb-item"><a href="{{ url_for('coursework_page', coursework_id=submission.coursework.id) }}">{{ submission.coursework.get_title() }}</a></li>
+        <li class="breadcrumb-item active" aria-current="page">{{submission.student.name }}</li>
+    {% elif topic %}
+        <li class="breadcrumb-item"><a href="{{ url_for('course_page', course_id=topic.course.id) }}">{{ topic.course.get_title() }}</a></li>
+        <li class="breadcrumb-item active" aria-current="page">{{ topic.get_title() }}</li>    
+    {% elif coursework %}
+        {% if coursework.course %}
+        <li class="breadcrumb-item"><a href="{{ url_for('course_page', course_id=coursework.course.id) }}">{{ coursework.course.get_title() }}</a></li>
+        {% endif %}
+        {% if coursework.topic %}
+            <li class="breadcrumb-item"><a href="{{ url_for('topic_page', topic_id=coursework.topic_id) }}">{{ coursework.topic.get_title() }}</a></li>
+        {% elif coursework.course %}
+                <li class="breadcrumb-item"><a href="{{ url_for('topic_page', course_id=coursework.course.id) }}"><em>No Topic</em></a></li>
+        {% endif %}
+        <li class="breadcrumb-item active" aria-current="page">{{coursework.get_title()  }}</li>
+    {% endif %}
+  
+  </ol>
+</nav>
+{% endif %}
+

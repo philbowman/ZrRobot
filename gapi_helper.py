@@ -23,14 +23,104 @@ class G_Service:
         self.calendar = self.make_service("calendar")
         self.classroom = self.make_service("classroom")
         self.drive = self.make_service("drive")
+        self.docs = self.make_service("docs")
+
+    def create_google_doc(self, title):
+        # Create a new Google Doc
+        document = self.docs.documents().create(body={'title': title or "NEW DOCUMENT"}).execute()
+        return document
+
+    def update_google_doc(self, content, title=None, doc_id=None, replace_all=True):
+        document = None
+        if not doc_id:
+            # Create a new Google Doc
+            document = self.create_google_doc(title)
+            doc_id = document['documentId']
+        else:
+            document = self.docs.documents().get(documentId=doc_id).execute()
+
+        if replace_all:            
+            last_char_index = max([c['endIndex'] for c in document['body']['content']])-1
+            if last_char_index > 1:
+                requests = [
+                    {
+                        'deleteContentRange': {
+                            'range': {
+                                'startIndex': 1,
+                                'endIndex': last_char_index,
+                            }
+
+                        }
+
+                    },
+                ]
+                document = self.docs.documents().batchUpdate(documentId=doc_id, body={'requests': requests}).execute()
+        
+        requests = [
+            {
+                'insertText': {
+                    'location': {
+                        'index': 1,
+                    },
+                    'text': content,
+                }
+            }
+        ]
+
+
+        self.docs.documents().batchUpdate(documentId=doc_id, body={'requests': requests}).execute()
+
+        return document
 
     @my_retry
-    def add_submission_attachments(self, submission, payload):
-        logger.info(f"ADDING ATTACHMENTS to {submission} - {payload}")
-        if not submission.associatedWithDeveloper:
-            logger.warning("Cannot push; not associated with developer")
-            return None
-        result = self.classroom.courses().courseWork().studentSubmissions().modifyAttachments(courseId=submission.coursework.classroom.id, courseWorkId=submission.coursework.id, id=submission.id, body=payload).execute()
+    def copy_coursework(self, course_id, coursework, new_title=None, new_due_datetime=None, draft=True):
+        if not new_title:
+            new_title = "_" + coursework.get("title", "")
+        
+        # Create a new payload for the copied coursework
+        new_coursework_payload = {
+            "title": new_title,
+            "description": coursework.get("description", ""),  # You can copy the description if needed
+            "maxPoints": coursework.get("maxPoints", 100),  # You can set a default value or copy the maxPoints
+            "state": coursework.get("state", "DRAFT"),  # You can set a default value or copy the state
+            "workType": 'ASSIGNMENT'
+        }
+        if draft:
+            new_coursework_payload['state'] = "DRAFT"
+        if not new_due_datetime:
+            if coursework.get("dueDate"):
+                new_due_datetime = GAPI_Date.from_cr(coursework.get("dueDate"), coursework.get("dueTime"))
+                if new_due_datetime < GAPI_Date.today():
+                    new_due_datetime = GAPI_Date.today()
+        if new_due_datetime:
+            new_coursework_payload['dueDate'] = new_due_datetime.dueDate()
+            new_coursework_payload['dueTime'] = new_due_datetime.dueTime()
+        
+
+        # Create the copied coursework
+        copied_coursework = self.create_coursework(course_id, new_coursework_payload)
+
+        return copied_coursework
+
+    @my_retry
+    def copy_submission_grades(self, submission, coursework, course, draftGrade, assignedGrade):
+        # Create a new payload for the copied submission
+        new_submission_payload = {
+            "draftGrade": draftGrade,  # You can copy the draftGrade if needed
+            "assignedGrade": assignedGrade,  # You can copy the assignedGrade if needed
+            "state": submission.get("state", "NEW"),  # You can set a default value or copy the state
+        }
+        # Create the copied submission
+        copied_submission = self.create_submission(coursework, submission.student, new_submission_payload)
+        return copied_submission
+
+
+
+
+    @my_retry
+    def add_submission_attachments(self, course_id, coursework_id, submission_id, attachment_payload):
+        logger.info(f"ADDING ATTACHMENTS to {submission_id} - {attachment_payload}")
+        result = self.classroom.courses().courseWork().studentSubmissions().modifyAttachments(courseId=course_id, courseWorkId=coursework_id, id=submission_id, body=attachment_payload).execute()
         return self.parse_submission(result)
 
     @my_retry
@@ -38,11 +128,20 @@ class G_Service:
         logger.info(f"RETURNING {submission}")
         response = self.classroom.courses().courseWork().studentSubmissions().return_(courseId=submission.coursework.classroom.id, courseWorkId=submission.coursework.id, id=submission.id)
 
+    @my_retry
+    def list_topics(self, course_id):
+        response = self.classroom.courses().topics().list(courseId=course_id).execute()
+        return response.get('topic', [])
 
     @my_retry
-    def create_coursework(self, classroom, payload):
-        logger.info(f"Creating coursework in {classroom}: {payload}")
-        cw =  self.classroom.courses().courseWork().create(courseId=classroom.id, body=payload).execute()
+    def get_topic(self, course_id, topic_id):
+        response = self.classroom.courses().topics().get(courseId=course_id, id=topic_id).execute()
+        return response
+
+    @my_retry
+    def create_coursework(self, course_id, payload):
+        logger.info(f"Creating coursework in {course_id}: {payload}")
+        cw =  self.classroom.courses().courseWork().create(courseId=course_id, body=payload).execute()
         return self.parse_cw(cw)
 
     @my_retry
@@ -60,7 +159,7 @@ class G_Service:
         cw['cidid'] = f"{cw['courseId']}-{cw['id']}"
         cw['dueDateTime'] = GAPI_Date.from_cr(cw.get('dueDate'), cw.get('dueTime'))
         for k in ['creationTime', 'updateTime', 'scheduledTime']:
-            cw[k] = GAPI_Date(cw.get(k))
+            cw[k] = GAPI_Date.from_cr(cw.get(k))
         return cw
 
     @my_retry
@@ -75,7 +174,7 @@ class G_Service:
     def parse_submission(self, s):
         s['cidid'] = f"{s['courseWorkId']}-{s['id']}"
         for k in ['creationTime', 'updateTime']:
-            s[k] = GAPI_Date(s.get(k))
+            s[k] = GAPI_Date.from_cr(s.get(k))
         return s
 
     @my_retry
@@ -103,20 +202,38 @@ class G_Service:
         return [self.parse_submission(s) for s in result]
 
     @my_retry
-    def get_gapi(self, obj):
-        if type(obj) is Course:
-            return self.classroom.courses().get(id = obj.id).execute()
-        if type(obj) is Student:
-            return self.classroom.userProfiles().get(userId=obj.email).execute()
-        if type(obj) is CourseWork:
-            coursework = self.parse_cw(self.classroom.courses().courseWork().get(id=obj.id, courseId=obj.classroom.id).execute())
-            return [self.parse_cw(cw) for cw in coursework]
-        if type(obj) is Submission:
-            submissions = self.parse_submission(self.classroom.courses().courseWork().studentSubmissions().get(id=obj.id, courseWorkId=obj.coursework.id, courseId=obj.coursework.classroom.id).execute())
-            return [self.parse_submission(s) for s in submissions]
-        return None
+    def get_submission(self, course_gid, coursework_gid, submission_gid):
+        submission = self.parse_submission(self.classroom.courses().courseWork().studentSubmissions().get(id=submission_gid, courseWorkId=coursework_gid, courseId=course_gid).execute())
+        return self.parse_submission(submission)
 
 
+    @my_retry
+    def get_coursework(self, course_gid, coursework_gid):
+        cw = self.classroom.courses().courseWork().get(id=coursework_gid, courseId=course_gid).execute()
+        return self.parse_cw(cw)
+    
+    @my_retry
+    def get_course(self, course_gid):
+        course = self.classroom.courses().get(id=course_gid).execute()
+        return course
+    
+    @my_retry
+    def get_student(self, student_gid):
+        student = self.classroom.userProfiles().get(userId=student_gid).execute()
+        return student
+    
+    @my_retry
+    def patch_submission(self, submission_gid, coursework_gid, course_gid, payload):
+        updatemask = ','.join([k for k in payload.keys()])
+        # Create the copied submission
+        patched_submission =  self.classroom.courses().courseWork().studentSubmissions().patch(id=submission_gid, courseWorkId=coursework_gid, courseId=course_gid, body=payload, updateMask=updatemask).execute()
+        return self.parse_submission(patched_submission)
+    
+
+    def patch_coursework(self, coursework_gid, course_gid, payload):
+        updatemask = ','.join([k for k in payload.keys()])
+        cw = self.classroom.courses().courseWork().patch(id=coursework_gid, courseId=course_gid, body=payload, updateMask=updatemask).execute()
+        return self.parse_cw(cw)
 
     @my_retry
     def patch(self, obj, payload):
@@ -207,7 +324,9 @@ class G_Service:
         'https://www.googleapis.com/auth/calendar.events',
         'https://www.googleapis.com/auth/classroom.coursework.me',
         'https://www.googleapis.com/auth/classroom.student-submissions.me.readonly',
-        'https://www.googleapis.com/auth/classroom.student-submissions.students.readonly']
+        'https://www.googleapis.com/auth/classroom.student-submissions.students.readonly',
+        'https://www.googleapis.com/auth/documents'
+        ]
         
         creds = None
         
@@ -230,6 +349,8 @@ class G_Service:
             return build('classroom', 'v1', credentials=creds)
         elif type == "drive":
             return build('drive', 'v3', credentials=creds)
+        elif type == 'docs':
+            return build('docs', 'v1', credentials=creds)
         else:
             return {"classroom_service": build('classroom', 'v1', credentials=creds), "drive_serice": build('drive', 'v3', credentials=creds)}
 
@@ -261,8 +382,12 @@ class GAPI_Date(datetime.datetime):
                 offset = cls.tzoffset
             if not cr_date:
                 return None
+            if type(cr_date) is cls:
+                return cr_date
             if type(cr_date) is str:
                 try:
+                    if cr_date[-5] == ".":
+                        return cls(datetime.datetime.strptime(cr_date, '%Y-%m-%dT%H:%M:%S.%fZ') + datetime.timedelta(hours=offset))
                     return cls(datetime.datetime.strptime(cr_date.removesuffix('Z'), '%Y-%m-%dT%H:%M:%S') + datetime.timedelta(hours=offset))
                 except ValueError:
                     parsed_dt = parser.parse(cr_date)
@@ -284,6 +409,7 @@ class GAPI_Date(datetime.datetime):
                 return cls(datetime.datetime(y, m, d, hr, mi) + datetime.timedelta(hours=offset))
             if type(cr_date) is datetime.datetime:
                 return cls(cr_date + datetime.timedelta(hours=offset))
+
             return None
     
     @classmethod

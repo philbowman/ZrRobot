@@ -1,6 +1,18 @@
 
 {% extends 'base.j2' %}
 
+
+{% block title %}Courses{% endblock %}
+
+
+{% block sidebar %}
+<ul>
+{% for course in courses %}
+<li><a href="{{ url_for('course_page', course_id=course.id)}}">{{ course.get_title() }}</a></li>
+{% endfor %}
+</ul>
+{% endblock %}
+
 {% block content %}
 <h1>Courses</h1>
 
@@ -9,10 +21,11 @@
     <input type="checkbox" class="form-check-input" id="filterCoursesCheckbox" checked>
     <label class="form-check-label" for="filterCoursesCheckbox">Show only courses with sections</label>
 </div>
-
+<div id="courses-div">
 {% for course in courses %}
     {% include 'course_partial.j2'%}
 {% endfor %}
+</div>
 
 <script>
     document.addEventListener("DOMContentLoaded", function () {

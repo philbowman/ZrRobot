@@ -1,0 +1,30 @@
+<div class="card">
+    <h3 class="card-header">{{ problem['title'] }}</h3>
+    <div class="card-body">
+    {% for criterion_title, criterion in problem['criteria'].items() %}
+        <div class="form-row">
+            <input type="hidden" name="c_problemid" value="{{ problemid }}">
+            <input type="hidden" name="c_grading_categories" value='{{ ",".join(criterion["grading_categories"]) }}'>
+            {# <input type="hidden" name="c_title" value="{{ criterion_title.replace(""", "'") }}"> #}
+            <input type="hidden" name="c_sequence_number" value="{{ criterion['sequence'] }}">
+            <input type="hidden" name="c_itemid" value="{{ problem['itemid'] }}">
+            <input type="hidden" name="c_psid" value="{{ problem['psid'] }}">
+            <input type="hidden" name="c_max_points" value="{{ criterion['max_points'] }}">
+            <input type="hidden" name="problemid" value="{{ problemid }}">
+
+            {% if criterion['max_points'] == 1 %}
+                <div class="form-check">
+                    <input type="hidden" id="c_score_{{problem['psid']}}{{problemid}}{{problem['itemid']}}" name="c_score" value="{{ criterion['score'] if criterion['score'] > 0 else 0 }}">
+                    <input class="form-check-input"  name="c_score_checkbox" type="checkbox" {% if criterion['score'] == 1 %} checked {% endif %} onchange="checkbox_criterion(this)">
+                    <label class="form-check-label" for="c_score_{{problem['psid']}}{{problemid}}{{problem['itemid']}}">{{ criterion_title }}{% if criterion['description'] %}: {{criterion['description']}} {% endif %}</label>
+                </div>
+            {% else %}
+                <p class="card-subtitle col">{{ criterion_title }}: {{criterion['description']}}</p>
+                <input class="form-control form-control-sm col-sm-1" style="height:min-content;" type="number" name="c_score" value="{{ criterion['score'] if criterion['score'] > 0 else 0 }}">
+                <p class="col-sm-2 card-text"> / {{ criterion['max_points'] }} ({{ ", ".join(criterion['grading_categories']) }})</p>
+            {% endif %}
+                
+        </div>
+    {% endfor %}
+    </div>
+</div>

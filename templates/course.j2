@@ -1,5 +1,10 @@
 {% extends 'base.j2' %}
+{% block title %}{{ course.get_title() }}{% endblock %}
+{% block sidebar %}
+{% include 'course_sidebar.j2' %}
+{% endblock %}
 {% block content %}
+{% set show_all=True %}
 {% include 'course_partial.j2' %}
-{% include 'course_cwlist.j2'%}
+
 {% endblock %}

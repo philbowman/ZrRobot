@@ -19,3 +19,7 @@ markdown
 python-dateutil
 google-auth-oauthlib
 greenlet
+Flask-Login
+google-auth 
+google-auth-oauthlib 
+google-auth-httplib2

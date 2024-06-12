@@ -10,14 +10,14 @@ import requests
 import json
 from sqlalchemy.orm import Session
 from models import *
+from secrets_parameters import *
 
+class MissingData(BaseException):
+    def __init__(self, message):
+        self.message = message
 
-STUDENTWORK_DIR = "studentwork"
-COMPARE50_DIR = "compare50"
-# COURSE_ID = "958"
-COURSE_ID = 1872
-COURSE_TITLE = "Computer Science Principles"
-TOKEN = '25e0c040383247d6a9e3d2ca9c54d4e6'
+    def __str__(self):
+        return self.message
 
 class Submit50:
     studentwork_dir = STUDENTWORK_DIR
@@ -40,7 +40,9 @@ class Submit50:
 
         for username, submissions in self.data_per_student.items():
             # Create or update Student record
-            email=self.usernames.get(username, {}).get('email', '').strip()
+            email = self.usernames.get(username, {}).get('email', '').strip()
+            if not email:
+                continue
             student = session.query(Student).filter_by(email=email).first()
             if not student:
                 student = Student(username=username, email=email)
@@ -95,37 +97,40 @@ class Submit50:
     @classmethod
     def get_project(cls, slug, assignment_folder, name, submission, pull=True):
         print(f"fetching {name}'s work for {slug}")
-        assignment_path = os.path.join(cls.studentwork_dir, assignment_folder)
+        assignment_path = assignment_folder
+        assignment_fullpath = os.path.join(cls.studentwork_dir, assignment_folder)
 
         #make the assignment folder if it doesn't exist
-        if not os.path.exists(assignment_path):
-            subprocess.run("mkdir " + assignment_path, shell=True)
+        if not os.path.exists(assignment_fullpath):
+            subprocess.run("mkdir " + assignment_fullpath, shell=True)
 
         github_url = f"https://github.com/me50/{submission['github_username']}.git"
-        student_path = os.path.join(assignment_path, name)
+        student_path = name
+        student_fullpath = os.path.join(cls.studentwork_dir, assignment_path, name)
         pull_result = None
         exists = False
 
         #pull/update repos that have already been cloned
-        if os.path.exists(student_path):
+        if os.path.exists(student_fullpath):
             exists = True
-            print(f"{student_path} exists")
+            print(f"{student_fullpath} exists")
             if pull:
                 print(f"pulling...")
-                pull_result = subprocess.run("git pull --rebase", shell=True, cwd=student_path)
+                pull_result = subprocess.run("git pull --rebase", shell=True, cwd=student_fullpath)
                 
         
         #clone repos that haven't yet been cloned
         else:
-            print(f"{student_path} doesn't exist.")
+            print(f"{student_fullpath} doesn't exist.")
             if pull:
-                print(f"{student_path} doesn't exist. cloning {github_url}")
-                print(f"git clone -b {slug} {github_url} {student_path}")
-                pull_result = subprocess.run(f"git clone -b {submission['slug']} {github_url} {student_path}", shell=True, cwd=assignment_path)
+                print(f"{student_fullpath} doesn't exist. cloning {github_url}")
+                print(f"git clone -b {slug} {github_url} {student_fullpath}")
+                command = f"git clone -b {submission['slug']} {github_url} {student_path}"
+                pull_result = subprocess.run(command, shell=True, cwd=assignment_fullpath)
     
         # Check if an error occurred during pull
         if exists or pull_result.returncode != 0:
-            return os.path.abspath(student_path)
+            return os.path.abspath(student_fullpath)
         return None
 
     @staticmethod
@@ -145,15 +150,15 @@ class Submit50:
 
     @staticmethod
     def run_compare50(slug, assignment_path):
-        archive_folder = os.path.join(assignment_path, 'archive')
+        archive_folder = os.path.join(assignment_path, '~archive')
         output_dir = f"{assignment_path}/{COMPARE50_DIR}"
         distro = ""
-        if os.path.exists(os.path.join(assignment_path, "distro")):
-            distro = " -d "+ assignment_path + "/distro/*.c"
+        if os.path.exists(os.path.join(assignment_path, "~distro")):
+            distro = " -d "+ assignment_path + "/~distro/*.c"
 
         if os.path.exists(output_dir):
             print("archiving old compare50 output...")
-            archive_dir = output_dir+"_archived_" + datetime.now().strftime("%Y%m%d")
+            archive_dir = output_dir+"_archived_" + datetime.datetime.now().strftime("%Y%m%d")
             if os.path.exists(archive_dir):
                 shutil.rmtree(archive_dir)
             os.rename(output_dir, archive_dir)
@@ -167,25 +172,61 @@ class Submit50:
             print(f"compare50 {assignment_path}/*/*.c -o {output_dir}{distro}")
 
             subprocess.run(f"compare50 {assignment_path}/*/*.c -o {output_dir}{distro}", shell=True)
-
+        return output_dir
+    
     def __init__(self, courseid, token, directory, course_title=COURSE_TITLE):
         self.courseid = courseid
         self.token = token
         self.course_title = course_title
-
         self.studentwork_dir = directory
         
-        if not os.path.exists(self.studentwork_dir):
-            subprocess.run("mkdir " + self.studentwork_dir, shell=True)
-        self.refresh_data()
-
-    def refresh_data(self, pull=False, compare=True):
         self.emails = {}
         self.usernames = {}
+        self.data_per_student = {}
+        self.foldernames = {}
+
+    def add_student(self, student):
+        if not student['email']:
+            student['email'] = ""
+        if not student['username']:
+            student['username'] = ""
+        if not student['name']:
+            student['name'] = ""
+
+        if student['email']:
+            self.emails.setdefault(student['email'], {})
+            if not self.emails[student['email']].get('username'):
+                self.emails[student['email']]['username'] = student['username']
+            if not self.emails[student['email']].get('name'):
+                self.emails[student['email']]['name'] = student['name']
+        
+        if student['username']:
+            self.usernames.setdefault(student['username'], {})
+            if not self.usernames[student['username']].get('email'):
+                self.usernames[student['username']]['email'] = student['email']
+            if not self.usernames[student['username']].get('name'):
+                self.usernames[student['username']]['name'] = student['name']
+
+            self.data_per_student.setdefault(student['username'], {})
+
+    def write_student_csv(self):
+        with open('students.csv', 'w') as csvfile:
+            fieldnames = ['email', 'username', 'name']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            rows = []
+            writer.writeheader()
+
+            for username, data in self.usernames.items():
+                writer.writerow({'username': username, 'email': data['email'], 'name': data['name']})
+
+    def refresh_data(self, pull=True, compare=True):
+
         with open("students.csv") as students:
             for person in csv.DictReader(students):
-                self.emails[person['email']] = {'username': person['username'], 'name': person['name']}
-                self.usernames[person['username']] = {'email': person['email'], 'name': person['name']}
+                if not person['email']:
+                    continue
+                self.add_student(person)
+
                 # self.data_per_student[person['username']]['email'] = person['email']
                 # self.data_per_student[person['username']]['name'] = person['name']
         self.data = self.get_submit50_data()
@@ -193,16 +234,28 @@ class Submit50:
             self.pull_projects(compare=compare)
 
     def pull_projects(self, compare=False):
+        if not os.path.exists(self.studentwork_dir):
+            subprocess.run("mkdir " + self.studentwork_dir, shell=True)
+        
         for username in self.data_per_student:
             for slug, submission in self.data_per_student[username].items():
                 print(f"fetching student work for {slug}")
                 assignment_folder = self.make_foldername(slug)
-                submission['repo_path'] = self.get_project(slug, assignment_folder, self.usernames[username]['email'].split('@')[0].replace(".", "_"), submission, pull=True)
+                # self.usernames.setdefault(username, {})
+                try:
+                    student_foldername = self.usernames[username]['email'].split('@')[0].replace(".", "_")
+                    self.foldernames[assignment_folder] = slug
+                    submission['repo_path'] = self.get_project(slug, assignment_folder, student_foldername, submission, pull=True)
+                except KeyError as e:
+                    print(f"KeyError: {e}")
+                    message = f"{username} not found.\nSubmission: {submission}\nSlug: {slug}\nEmail: {submission['email']}"
+                    self.usernames[username] = {'email': submission['email'], 'name': submission['name']}
+                    # raise MissingData(message)
 
-        # if compare:
-        #     for folder, slug in self.foldernames.items():
-        #         self.run_compare50(slug, os.path.join(self.studentwork_dir, folder))
-    
+        if compare:
+            for folder, slug in self.foldernames.items():
+                self.run_compare50(slug, os.path.join(self.studentwork_dir, folder))
+
     def write_json(self):
         with open('data.json', 'w') as outfile:
             json.dump(self.data_per_student, outfile, indent=4)

@@ -1,14 +1,10 @@
 <li class="nav-item">
-    <h1>Main Page</h1>
-</li>
-
-<li class="nav-item">
         <label for="course_select">Course</label>
         <select id="course_select" name="course_select" multiple onchange="updateCourseSelection(this)">
             <option value="" selected>All</option>
 
             {% for course in courses %}
-            <option value="{{ course.id }}">{{ course.title }}</option>
+            <option value="{{ course.id }}">{{ course.get_title() }}</option>
             {% endfor %}
         </select>
 </li>
@@ -22,7 +18,7 @@
             <br>
             {% for course in courses %}            
                 <input type="checkbox" data-course-checkbox data-course-id="{{ course.id }}" onchange="selectAllStudentsInCourse(this)">
-                <label>{{ course.title }}</label>
+                <label>{{ course.get_title() }}</label>
                 <ul>
                     {% for student in students_by_course.get(course.id, []) %}
                         <div class="student-checkbox">

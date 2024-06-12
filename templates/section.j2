@@ -12,9 +12,9 @@
             <option value="">None</option>
             {% for course in courses %}
             {% if course.id == section.course.id %}
-            <option value="{{ course.id }}" selected>{{ course.title }}</option>
+            <option value="{{ course.id }}" selected>{{ course.get_title() }}</option>
             {% else %}
-            <option value="{{ course.id }}">{{ course.title }}</option>
+            <option value="{{ course.id }}">{{ course.get_title() }}</option>
             {% endif %}
             {% endfor %}
     <input type="submit" class="btn btn-success" value="{{ 'Update' }}">
